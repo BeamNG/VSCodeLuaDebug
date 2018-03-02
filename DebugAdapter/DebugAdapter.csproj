@@ -55,7 +55,7 @@
     <Compile Include="Debuggee\IDebuggeeListener.cs" />
     <Compile Include="Debuggee\IDebuggeeSender.cs" />
     <Compile Include="Debuggee\DebuggeeServer.cs" />
-    <Compile Include="DebugSession.cs" />
+    <Compile Include="VSDebugSession.cs" />
     <Compile Include="Main.cs" />
     <Compile Include="MessageBox.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

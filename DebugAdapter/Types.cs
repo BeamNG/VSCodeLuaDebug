@@ -75,10 +75,10 @@ namespace VSCodeDebug
 
     public class Thread
     {
-        public int id { get; }
+        public string id { get; }
         public string name { get; }
 
-        public Thread(int id, string name)
+        public Thread(string id, string name)
         {
             this.id = id;
             if (name == null || name.Length == 0)

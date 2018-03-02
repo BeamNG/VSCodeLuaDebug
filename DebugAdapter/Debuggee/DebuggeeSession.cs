@@ -8,14 +8,13 @@ using System.Net.Sockets;
 
 namespace VSCodeDebug
 {
-    class DebuggeeSession : IDebuggee
-    {
+    class DebuggeeSession : IDebuggee {
         //Encoding encoding;
         protected static readonly Encoding encoding = System.Text.Encoding.UTF8;
         NetworkStream networkStream;
         IDebuggeeListener debuggeeListener;
 
-        const bool debuglogProtocol = false;
+        const bool debuglogProtocol = true;
 
         public DebuggeeSession(IDebuggeeListener debuggeeListener, NetworkStream networkStream) {
             this.debuggeeListener = debuggeeListener;

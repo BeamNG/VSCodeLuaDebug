@@ -22,16 +22,19 @@ using System.Text.RegularExpressions;
 
 namespace VSCodeDebug
 {
-    public class DebugSession : ICDPListener, IDebuggeeListener
-    {
+    public class VSDebugSession : ICDPListener, IDebuggeeListener {
+        protected static readonly Encoding encoding = System.Text.Encoding.UTF8;
         public ICDPSender toVSCode;
-        public IDebuggee debuggee;
+
         Process process;
         string startCommand;
         string sourceBasePath;
         int startSeq;
 
-        public DebugSession() {
+        Dictionary<string, IDebuggee> debuggeeThreads = new Dictionary<string, IDebuggee>();
+        List<IDebuggee> debuggees = new List<IDebuggee>();
+
+        public VSDebugSession() {
             Program.WaitingUI.SetLabelText("Waiting for commands from Visual Studio Code...");
         }
 
@@ -70,9 +73,7 @@ namespace VSCodeDebug
                         case "configurationDone":
                         case "evaluate":
                         case "pause":
-                            if (debuggee != null) {
-                                debuggee.SendToDebuggee(reqText);
-                            }
+                            FindAndSendToDebuggee(reqText);
                             break;
 
                         case "source":
@@ -84,6 +85,7 @@ namespace VSCodeDebug
                             break;
                     }
                 } catch (Exception e) {
+                    Utilities.LogMessageToFile("Exception in X_FromVSCode: " + e);
                     MessageBox.WTF(e.ToString());
                     SendErrorResponse(command, seq, 1104, "error while processing request '{_request}' (exception: {_exception})", new { _request = command, _exception = e.Message });
                     Environment.Exit(1);
@@ -143,13 +145,14 @@ namespace VSCodeDebug
             sourceBasePath = (string)args.sourceBasePath;
             this.startCommand = command;
             this.startSeq = seq;
+
             DebuggeeServer.StartListener(this, args);
         }
 
 
         void IDebuggeeListener.VSDebuggeeConnected(IDebuggee debuggee) {
             lock (this) {
-                this.debuggee = debuggee;
+                debuggees.Add(debuggee);
 
                 Program.WaitingUI.BeginInvoke(new Action(() => {
                     Program.WaitingUI.Hide();
@@ -169,6 +172,23 @@ namespace VSCodeDebug
 
         void IDebuggeeListener.VSDebuggeeMessage(IDebuggee debugee, byte[] json) {
             lock (this) {
+                // we intercept the messages here and reverse-engineer the local threads :)
+                try {
+                    string jsonString = encoding.GetString(json);
+                    var j = JsonConvert.DeserializeObject<Response>(jsonString);
+                    if (j.command == "threads" && j.type == "response") {
+                        // TODO
+                        ThreadResponse jThread = JsonConvert.DeserializeObject<ThreadResponse>(jsonString);
+                        for(int ti = 0; ti < jThread.body.threads.Count; ti++) {
+                            debuggeeThreads.Add(jThread.body.threads[ti].id, debugee);
+                            Utilities.LogMessageToFile("Associated thread: " + jThread.body.threads[ti].id + " -> " + debugee);
+                        }
+                        
+
+                    }
+                } catch(Exception e) {
+                    Utilities.LogMessageToFile("Exception in VSDebuggeeMessage: " + e);
+                }
                 toVSCode.SendJSONEncodedMessage(json);
             }
         }
@@ -178,6 +198,32 @@ namespace VSCodeDebug
             lock (this) {
                 toVSCode.SendMessage(new TerminatedEvent());
             }
+        }
+
+        private void sendToEveryone(string jsonText) {
+            for (int i = 0; i < debuggees.Count; i++) {
+                debuggees[i].SendToDebuggee(jsonText);
+            }
+        }
+
+
+        private void FindAndSendToDebuggee(string jsonText) {
+            // ok, figure out to what debuggee this should go
+            try {
+                var j = JsonConvert.DeserializeObject<Request>(jsonText);
+                if (j.arguments != null) {
+                    var threadIdTmp = j.arguments.Property("threadId");
+                    if (threadIdTmp != null) {
+                        string threadId = (string)threadIdTmp;
+                        debuggeeThreads[threadId].SendToDebuggee(jsonText);
+                        return;
+                    }
+                }
+            } catch(Exception e) {
+                Utilities.LogMessageToFile("Exception in FindAndSendToDebuggee: " + e);
+            }
+            Utilities.LogMessageToFile("[[Broadcast]]");
+            sendToEveryone(jsonText);
         }
     }
 }

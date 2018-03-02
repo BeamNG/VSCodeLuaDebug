@@ -41,7 +41,11 @@ namespace VSCodeDebug
         }
     }
 
-
+    public class ThreadResponse : MessageToVSCode
+    {
+        public ThreadResponse(string command, int seq) : base("response") { }
+        public ThreadsResponseBody body { get; set; }
+    }
 
     // ---- Response -------------------------------------------------------------------------
 
@@ -107,14 +111,10 @@ namespace VSCodeDebug
 
     public class ThreadsResponseBody : ResponseBody
     {
-        public Thread[] threads { get; }
+        public List<Thread> threads { get; }
 
-        public ThreadsResponseBody(List<Thread> vars = null)
-        {
-            if (vars == null)
-                threads = new Thread[0];
-            else
-                threads = vars.ToArray<Thread>();
+        public ThreadsResponseBody(List<Thread> threads = null) {
+            this.threads = threads;
         }
     }
 

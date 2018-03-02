@@ -38,12 +38,12 @@ namespace VSCodeDebug
         {
             try
             {
-                // 우선 VS Code와의 통신을 조립한다.
-                // 디버기와의 통신은 launch 명령어 실행 이후에 조립한다.
-                var debugSession = new DebugSession();
-                var cdp = new VSCodeDebugProtocol(debugSession);
+                // First, assemble communication with VS Code.
+                // Communication with debugger is assembled after execution of launch command.
+                VSDebugSession vsDebugSession = new VSDebugSession();
 
-                debugSession.toVSCode = cdp;
+                var cdp = new VSCodeDebugProtocol(vsDebugSession);
+                vsDebugSession.toVSCode = cdp;
                 toVSCode = cdp;
 
                 cdp.Loop(Console.OpenStandardInput(), Console.OpenStandardOutput());
