@@ -1,15 +1,15 @@
 {
-    "name": "lua-debug",
-    "displayName": "Lua Debugger",
-    "version": "1.1.0",
-    "publisher": "devCAT",
-    "icon": "images/icon.png",
-    "description": "Visual Studio Code debugger extension for Lua 5.1",
+    "name": "luajit-debug",
+    "displayName": "LuaJIT Debugger",
+    "version": "0.1.0",
+    "publisher": "BeamNG",
+    "icon": "luajit.png",
+    "description": "Visual Studio Code debugger extension for LuaJIT",
     "categories": [
         "Debuggers"
     ],
     "author": {
-        "name": "lee-seungjae"
+        "name": "BeamNG"
     },
     "license": "MIT",
     "private": true,
@@ -20,20 +20,20 @@
     "dependencies": {},
     "repository": {
         "type": "git",
-        "url": "https://github.com/devcat-studio/VSCodeLuaDebug.git"
+        "url": "https://github.com/BeamNG/VSCodeLuaDebug.git"
     },
     "devDependencies": {},
     "contributes": {
         "debuggers": [
             {
                 "type": "lua",
-                "label": "Lua Debugger",
+                "label": "LuaJIT Debugger",
                 "enableBreakpointsFor": {
                     "languageIds": [
                         "lua"
                     ]
                 },
-                "program": "./DebugAdapter.exe",
+                "program": "DebugAdapter.exe",
                 "osx": {
                     "runtime": "mono"
                 },
@@ -41,42 +41,6 @@
                     "runtime": "mono"
                 },
                 "initialConfigurations": [
-                    {
-                        "name": "launch-lua",
-                        "type": "lua",
-                        "request": "launch",
-                        "workingDirectory": "${workspaceRoot}",
-                        "sourceBasePath": "${workspaceRoot}",
-                        "executable": "${workspaceRoot}/lua.exe",
-                        "arguments": "main.lua",
-                        "listenPublicly": false,
-                        "listenPort": 56789,
-                        "encoding": "UTF-8",
-                        "env": {}
-                    },
-                    {
-                        "name": "launch-gideros",
-                        "type": "lua",
-                        "request": "launch",
-                        "workingDirectory": "${workspaceRoot}",
-                        "giderosPath": "C:/Program Files (x86)/Gideros",
-                        "gprojPath": "${workspaceRoot}/GPROJ.gproj",
-                        "jumpToGiderosErrorPosition": false,
-                        "stopGiderosWhenDebuggerStops": true,
-                        "listenPublicly": false,
-                        "listenPort": 56789,
-                        "encoding": "UTF-8"
-                    },
-                    {
-                        "name": "wait",
-                        "type": "lua",
-                        "request": "attach",
-                        "workingDirectory": "${workspaceRoot}",
-                        "sourceBasePath": "${workspaceRoot}",
-                        "listenPublicly": false,
-                        "listenPort": 56789,
-                        "encoding": "UTF-8"
-                    }
                 ],
                 "configurationAttributes": {
                     "launch": {
@@ -124,30 +88,11 @@
                                 "description": "Local TCP port to communicate between debug adapter and debuggee",
                                 "default": 56789
                             },
-                            "giderosPath": {
-                                "type": "string",
-                                "description": "Gideros installation directory",
-                                "default": "c:/program files (x86)/gideros"
-                            },
-                            "gprojPath": {
-                                "type": "string",
-                                "description": "Path of .gproj file",
-                                "default": "${workspaceRoot}/GPROJ.gproj"
-                            },
+
                             "encoding": {
                                 "type": "string",
                                 "description": "Encoding of the debuggee. (Example: 'UTF-8', '949')",
                                 "default": "UTF-8"
-                            },
-                            "jumpToGiderosErrorPosition": {
-                                "type": "boolean",
-                                "description": "Sets whether to jump directly to the source file if it encounters a Gideros error message.",
-                                "default": false
-                            },
-                            "stopGiderosWhenDebuggerStops": {
-                                "type": "boolean",
-                                "description": "Stops Gideros Player when debug adapter stops.",
-                                "default": false
                             }
                         }
                     },
