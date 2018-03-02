@@ -1,0 +1,1 @@
+This is the C# project that is creating the DebugAdapter for acceping VSCode input/output commands and forwarding them as Json to the Lua debuggee
