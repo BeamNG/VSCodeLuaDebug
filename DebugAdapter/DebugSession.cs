@@ -28,6 +28,7 @@ namespace VSCodeDebug
         public IDebuggee debuggee;
         Process process;
         string startCommand;
+        string sourceBasePath;
         int startSeq;
 
         public DebugSession() {
@@ -139,6 +140,7 @@ namespace VSCodeDebug
         void Attach(string command, int seq, dynamic args) {
             Program.WaitingUI.SetLabelText("Waiting for debugee ... "); // listener.LocalEndpoint.ToString() + "...");
 
+            sourceBasePath = (string)args.sourceBasePath;
             this.startCommand = command;
             this.startSeq = seq;
             DebuggeeServer.StartListener(this, args);
@@ -155,6 +157,7 @@ namespace VSCodeDebug
                 
                 var welcome = new {
                     command = "welcome",
+                    sourceBasePath = sourceBasePath,
                 };
                 debuggee.SendToDebuggee(JsonConvert.SerializeObject(welcome));
 

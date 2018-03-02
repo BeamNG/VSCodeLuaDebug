@@ -15,7 +15,7 @@ namespace VSCodeDebug
                 while (true) {
                     var clientSocket = serverSocket.AcceptSocket();
                     if (clientSocket != null) {
-                        Utilities.LogMessageToFile(">> accepted connection from client");
+                        //Utilities.LogMessageToFile(">> accepted connection from client");
 
                         new System.Threading.Thread(() => {
                             using (var networkStream = new NetworkStream(clientSocket)) {
@@ -27,7 +27,7 @@ namespace VSCodeDebug
                                 }
                             }
                             clientSocket.Close();
-                            Utilities.LogMessageToFile(">> client connection closed");
+                            //Utilities.LogMessageToFile(">> client connection closed");
                         }).Start();
                     }
                 }

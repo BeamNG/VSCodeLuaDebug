@@ -15,6 +15,8 @@ namespace VSCodeDebug
         NetworkStream networkStream;
         IDebuggeeListener debuggeeListener;
 
+        const bool debuglogProtocol = false;
+
         public DebuggeeSession(IDebuggeeListener debuggeeListener, NetworkStream networkStream) {
             this.debuggeeListener = debuggeeListener;
             this.networkStream = networkStream;
@@ -64,11 +66,13 @@ namespace VSCodeDebug
             string body = encoding.GetString(bodyBytes);
             //MessageBox.OK(body);
 
+            if(debuglogProtocol) Utilities.LogMessageToFile(" < " + body);
             debuggeeListener.VSDebuggeeMessage(this, bodyBytes);
             return true;
         }
 
         public void SendToDebuggee(string reqText)  {
+            if (debuglogProtocol) Utilities.LogMessageToFile(" > " + reqText);
             byte[] bodyBytes = encoding.GetBytes(reqText);
             string header = '#' + bodyBytes.Length.ToString() + "\n";
             byte[] headerBytes = encoding.GetBytes(header);
