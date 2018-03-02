@@ -15,7 +15,7 @@ namespace VSCodeDebug
                 while (true) {
                     var clientSocket = serverSocket.AcceptSocket();
                     if (clientSocket != null) {
-                        Console.Error.WriteLine(">> accepted connection from client");
+                        Utilities.LogMessageToFile(">> accepted connection from client");
 
                         new System.Threading.Thread(() => {
                             using (var networkStream = new NetworkStream(clientSocket)) {
@@ -23,11 +23,11 @@ namespace VSCodeDebug
                                     DebuggeeSession d = new DebuggeeSession(listener, networkStream);
                                     d.RunSession();
                                 } catch (Exception e) {
-                                    Console.Error.WriteLine("Exception: " + e);
+                                    Utilities.LogMessageToFile("Exception: " + e);
                                 }
                             }
                             clientSocket.Close();
-                            Console.Error.WriteLine(">> client connection closed");
+                            Utilities.LogMessageToFile(">> client connection closed");
                         }).Start();
                     }
                 }

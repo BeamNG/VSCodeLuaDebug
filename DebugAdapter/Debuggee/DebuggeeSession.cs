@@ -64,7 +64,7 @@ namespace VSCodeDebug
             string body = encoding.GetString(bodyBytes);
             //MessageBox.OK(body);
 
-            Disconnect();
+            debuggeeListener.VSDebuggeeMessage(this, bodyBytes);
             return true;
         }
 
