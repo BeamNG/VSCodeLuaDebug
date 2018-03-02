@@ -73,12 +73,6 @@
       <DependentUpon>WaitingUI.cs</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\GiderosPlayerRemote\GiderosPlayerRemote.csproj">
-      <Project>{9B443183-90EE-4805-AC8A-224ECBCBE1A7}</Project>
-      <Name>GiderosPlayerRemote</Name>
-    </ProjectReference>
-  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
@@ -87,7 +81,6 @@
   -->
   <Target Name="AfterBuild">
     <Copy SourceFiles="$(OutputPath)\Newtonsoft.Json.dll" DestinationFolder="$(MSBuildProjectDirectory)\..\Extension" />
-    <Copy SourceFiles="$(OutputPath)\GiderosPlayerRemote.dll" DestinationFolder="$(MSBuildProjectDirectory)\..\Extension" />
     <Copy SourceFiles="$(OutputPath)\DebugAdapter.exe" DestinationFolder="$(MSBuildProjectDirectory)\..\Extension" />
   </Target>
 </Project>

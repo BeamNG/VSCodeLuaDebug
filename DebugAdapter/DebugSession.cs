@@ -10,7 +10,6 @@
 *  Licensed under the MIT License. See License.txt in the project root for license information.
 *--------------------------------------------------------------------------------------------*/
 
-using GiderosPlayerRemote;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -23,20 +22,16 @@ using System.Text.RegularExpressions;
 
 namespace VSCodeDebug
 {
-    public class DebugSession : ICDPListener, IDebuggeeListener, IRemoteControllerListener
+    public class DebugSession : ICDPListener, IDebuggeeListener
     {
         public ICDPSender toVSCode;
         public IDebuggeeSender toDebuggee;
         Process process;
-        RemoteController giderosRemoteController;
-        string giderosStdoutBuffer = "";
         string workingDirectory;
         string sourceBasePath;
         Tuple<string, int> fakeBreakpointMode = null;
         string startCommand;
         int startSeq;
-        bool jumpToGiderosErrorPosition = false;
-        bool stopGiderosWhenDebuggerStops = false;
 
         public DebugSession()
         {
@@ -161,12 +156,6 @@ namespace VSCodeDebug
 
         void Disconnect(string command, int seq, dynamic arguments)
         {
-            if (giderosRemoteController != null &&
-                stopGiderosWhenDebuggerStops)
-            {
-                giderosRemoteController.SendStop();
-            }
-
             if (process != null)
             {
                 try
@@ -215,140 +204,6 @@ namespace VSCodeDebug
         {
             // 런치 전에 디버기가 접속할 수 있게 포트를 먼저 열어야 한다.
             var listener = PrepareForDebuggee(command, seq, args);
-
-            string gprojPath = args.gprojPath;
-            if (gprojPath == null)
-            {
-                //--------------------------------
-                // validate argument 'executable'
-                var runtimeExecutable = (string)args.executable;
-                if (runtimeExecutable == null) { runtimeExecutable = ""; }
-
-                runtimeExecutable = runtimeExecutable.Trim();
-                if (runtimeExecutable.Length == 0)
-                {
-                    SendErrorResponse(command, seq, 3005, "Property 'executable' is empty.");
-                    return;
-                }
-                var runtimeExecutableFull = GetFullPath(runtimeExecutable);
-                if (runtimeExecutableFull == null)
-                {
-                    SendErrorResponse(command, seq, 3006, "Runtime executable '{path}' does not exist.", new { path = runtimeExecutable });
-                    return;
-                }
-
-                //--------------------------------
-                if (!ReadBasicConfiguration(command, seq, args)) { return; }
-
-                //--------------------------------
-                var arguments = (string)args.arguments;
-                if (arguments == null) { arguments = ""; }
-
-                // validate argument 'env'
-                Dictionary<string, string> env = null;
-                var environmentVariables = args.env;
-                if (environmentVariables != null)
-                {
-                    env = new Dictionary<string, string>();
-                    foreach (var entry in environmentVariables)
-                    {
-                        env.Add((string)entry.Name, entry.Value.ToString());
-                    }
-                    if (env.Count == 0)
-                    {
-                        env = null;
-                    }
-                }
-
-                process = new Process();
-                process.StartInfo.CreateNoWindow = false;
-                process.StartInfo.WindowStyle = ProcessWindowStyle.Normal;
-                process.StartInfo.UseShellExecute = true;
-                process.StartInfo.WorkingDirectory = workingDirectory;
-                process.StartInfo.FileName = runtimeExecutableFull;
-                process.StartInfo.Arguments = arguments;
-
-                process.EnableRaisingEvents = true;
-                process.Exited += (object sender, EventArgs e) =>
-                {
-                    lock (this)
-                    {
-                        toVSCode.SendMessage(new TerminatedEvent());
-                    }
-                };
-
-                if (env != null)
-                {
-                    foreach (var entry in env)
-                    {
-                        System.Environment.SetEnvironmentVariable(entry.Key, entry.Value);
-                    }
-                }
-
-                var cmd = string.Format("{0} {1}\n", runtimeExecutableFull, arguments);
-                toVSCode.SendOutput("console", cmd);
-
-                try
-                {
-                    process.Start();
-                }
-                catch (Exception e)
-                {
-                    SendErrorResponse(command, seq, 3012, "Can't launch terminal ({reason}).", new { reason = e.Message });
-                    return;
-                }
-            }
-            else
-            {
-                giderosRemoteController = new RemoteController();
-
-                var connectStartedAt = DateTime.Now;
-                bool alreadyLaunched = false;
-                while (!giderosRemoteController.TryStart("127.0.0.1", 15000, gprojPath, this))
-                {
-                    if (DateTime.Now - connectStartedAt > TimeSpan.FromSeconds(10))
-                    {
-                        SendErrorResponse(command, seq, 3012, "Can't connect to GiderosPlayer.", new { });
-                        return;
-                    }
-                    else if (alreadyLaunched)
-                    {
-                        System.Threading.Thread.Sleep(100);
-                    }
-                    else
-                    {
-                        try
-                        {
-                            var giderosPath = (string)args.giderosPath;
-                            process = new Process();
-                            process.StartInfo.UseShellExecute = true;
-                            process.StartInfo.CreateNoWindow = true;
-                            process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                            process.StartInfo.WorkingDirectory = giderosPath;
-
-                            // I don't know why this fix keeps GiderosPlayer.exe running
-                            // after DebugAdapter stops.
-                            // And I don't want to know..
-                            process.StartInfo.FileName = "cmd.exe";
-                            process.StartInfo.Arguments = "/c \"start GiderosPlayer.exe\"";
-                            process.Start();
-
-                            Program.WaitingUI.SetLabelText(
-                                "Launching " + process.StartInfo.FileName + " " +
-                                process.StartInfo.Arguments + "...");
-                        }
-                        catch (Exception e)
-                        {
-                            SendErrorResponse(command, seq, 3012, "Can't launch GiderosPlayer ({reason}).", new { reason = e.Message });
-                            return;
-                        }
-                        alreadyLaunched = true;
-                    }
-                }
-
-                new System.Threading.Thread(giderosRemoteController.ReadLoop).Start();
-            }
-
             AcceptDebuggee(command, seq, args, listener);
         }
 
@@ -423,18 +278,6 @@ namespace VSCodeDebug
                 return false;
             }
 
-            if (args.jumpToGiderosErrorPosition != null &&
-                (bool)args.jumpToGiderosErrorPosition == true)
-            {
-                jumpToGiderosErrorPosition = true;
-            }
-
-            if (args.stopGiderosWhenDebuggerStops != null &&
-                (bool)args.stopGiderosWhenDebuggerStops == true)
-            {
-                stopGiderosWhenDebuggerStops = true;
-            }
-
             if (args.sourceBasePath != null)
             {
                 sourceBasePath = (string)args.sourceBasePath;
@@ -488,65 +331,6 @@ namespace VSCodeDebug
             {
                 if (fakeBreakpointMode != null) { return; }
                 toVSCode.SendMessage(new TerminatedEvent());
-            }
-        }
-
-        void IRemoteControllerListener.X_Log(LogType logType, string content)
-        {
-            lock (this)
-            {
-                switch (logType)
-                {
-                    case LogType.Info:
-                        toVSCode.SendOutput("console", content);
-                        break;
-
-                    case LogType.PlayerOutput:
-                        CheckGiderosOutput(content);
-
-                        // Gideros sends '\n' as seperate packet,
-                        // and VS Code adds linefeed to the end of each output message.
-                        if (content == "\n")
-                        {
-                            bool looksLikeGiderosError = errorMatcher.Match(giderosStdoutBuffer).Success;
-                            toVSCode.SendOutput(
-                                (looksLikeGiderosError ? "stderr" : "stdout"),
-                                giderosStdoutBuffer);
-                            giderosStdoutBuffer = "";
-                        }
-                        else
-                        {
-                            giderosStdoutBuffer += content;
-                        }
-                        break;
-
-                    case LogType.Warning:
-                        toVSCode.SendOutput("stderr", content);
-                        break;
-                }
-            }
-        }
-
-        protected static readonly Regex errorMatcher = new Regex(@"^([^:\n\r]+):(\d+): ");
-        void CheckGiderosOutput(string content)
-        {
-            Match m = errorMatcher.Match(content);
-            if (!m.Success) { return; }
-
-            if (jumpToGiderosErrorPosition)
-            {
-                // Entering fake breakpoint mode:
-                string file = m.Groups[1].ToString();
-                int line = int.Parse(m.Groups[2].ToString());
-                this.fakeBreakpointMode = new Tuple<string, int>(file, line);
-
-                if (startCommand != null)
-                {
-                    SendResponse(startCommand, startSeq, null);
-                    toVSCode.SendMessage(new InitializedEvent());
-                    startCommand = null;
-                }
-                toVSCode.SendMessage(new StoppedEvent(999, "error"));
             }
         }
     }

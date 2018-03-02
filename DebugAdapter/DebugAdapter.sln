@@ -1,13 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.25420.1
+# Visual Studio 15
+VisualStudioVersion = 15.0.27130.2036
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DebugAdapter", "DebugAdapter.csproj", "{219EEF85-F765-4F75-9399-EF2690FD1DCC}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GiderosPlayerRemote", "..\GiderosPlayerRemote\GiderosPlayerRemote.csproj", "{9B443183-90EE-4805-AC8A-224ECBCBE1A7}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GiderosPlayerRemoteTest", "..\GiderosPlayerRemoteTest\GiderosPlayerRemoteTest.csproj", "{C44689A7-B612-4F40-9555-C814F78B791E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -19,16 +15,11 @@ Global
 		{219EEF85-F765-4F75-9399-EF2690FD1DCC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{219EEF85-F765-4F75-9399-EF2690FD1DCC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{219EEF85-F765-4F75-9399-EF2690FD1DCC}.Release|Any CPU.Build.0 = Release|Any CPU
-		{9B443183-90EE-4805-AC8A-224ECBCBE1A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{9B443183-90EE-4805-AC8A-224ECBCBE1A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{9B443183-90EE-4805-AC8A-224ECBCBE1A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{9B443183-90EE-4805-AC8A-224ECBCBE1A7}.Release|Any CPU.Build.0 = Release|Any CPU
-		{C44689A7-B612-4F40-9555-C814F78B791E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C44689A7-B612-4F40-9555-C814F78B791E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{C44689A7-B612-4F40-9555-C814F78B791E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C44689A7-B612-4F40-9555-C814F78B791E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {05A37690-B97F-44C9-91AC-A0E6B0B1A579}
 	EndGlobalSection
 EndGlobal
