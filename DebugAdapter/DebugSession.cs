@@ -25,64 +25,22 @@ namespace VSCodeDebug
     public class DebugSession : ICDPListener, IDebuggeeListener
     {
         public ICDPSender toVSCode;
-        public IDebuggeeSender toDebuggee;
+        public IDebuggee debuggee;
         Process process;
-        string workingDirectory;
-        string sourceBasePath;
-        Tuple<string, int> fakeBreakpointMode = null;
         string startCommand;
         int startSeq;
 
-        public DebugSession()
-        {
-            Program.WaitingUI.SetLabelText(
-                "Waiting for commands from Visual Studio Code...");
+        public DebugSession() {
+            Program.WaitingUI.SetLabelText("Waiting for commands from Visual Studio Code...");
         }
 
-        void ICDPListener.X_FromVSCode(string command, int seq, dynamic args, string reqText)
-        {
-            lock (this)
-            {
+        void ICDPListener.X_FromVSCode(string command, int seq, dynamic args, string reqText) {
+            lock (this) {
                 //MessageBox.OK(reqText);
                 if (args == null) { args = new { }; }
 
-                if (fakeBreakpointMode != null)
-                {
-                    if (command == "configurationDone")
-                    {
-                        SendResponse(command, seq, null);
-                    }
-                    else if (command == "threads")
-                    {
-                        SendResponse(command, seq, new ThreadsResponseBody(
-                            new List<Thread>() { new Thread(999, "fake-thread") }));
-                    }
-                    else if (command == "stackTrace")
-                    {
-                        var src = new Source(Path.Combine(sourceBasePath, fakeBreakpointMode.Item1));
-                        var f = new StackFrame(9999, "fake-frame", src, fakeBreakpointMode.Item2, 0);
-                        SendResponse(command, seq, new StackTraceResponseBody(
-                            new List<StackFrame>() { f }));
-                    }
-                    else if (command == "scopes")
-                    {
-                        SendResponse(command, seq, new ScopesResponseBody(
-                            new List<Scope>()));
-
-                        System.Threading.Thread.Sleep(1000);
-                        toVSCode.SendMessage(new TerminatedEvent());
-                    }
-                    else
-                    {
-                        SendErrorResponse(command, seq, 999, "", new { });
-                    }
-                    return;
-                }
-
-                try
-                {
-                    switch (command)
-                    {
+                try {
+                    switch (command) {
                         case "initialize":
                             Initialize(command, seq, args);
                             break;
@@ -111,9 +69,8 @@ namespace VSCodeDebug
                         case "configurationDone":
                         case "evaluate":
                         case "pause":
-                            if (toDebuggee != null)
-                            {
-                                toDebuggee.Send(reqText);
+                            if (debuggee != null) {
+                                debuggee.SendToDebuggee(reqText);
                             }
                             break;
 
@@ -125,9 +82,7 @@ namespace VSCodeDebug
                             SendErrorResponse(command, seq, 1014, "unrecognized request: {_request}", new { _request = command });
                             break;
                     }
-                }
-                catch (Exception e)
-                {
+                } catch (Exception e) {
                     MessageBox.WTF(e.ToString());
                     SendErrorResponse(command, seq, 1104, "error while processing request '{_request}' (exception: {_exception})", new { _request = command, _exception = e.Message });
                     Environment.Exit(1);
@@ -135,18 +90,15 @@ namespace VSCodeDebug
             }
         }
 
-        void SendResponse(string command, int seq, dynamic body)
-        {
+        void SendResponse(string command, int seq, dynamic body) {
             var response = new Response(command, seq);
-            if (body != null)
-            {
+            if (body != null) {
                 response.SetBody(body);
             }
             toVSCode.SendMessage(response);
         }
 
-        void SendErrorResponse(string command, int seq, int id, string format, dynamic arguments = null, bool user = true, bool telemetry = false)
-        {
+        void SendErrorResponse(string command, int seq, int id, string format, dynamic arguments = null, bool user = true, bool telemetry = false) {
             var response = new Response(command, seq);
             var msg = new Message(id, format, arguments, user, telemetry);
             var message = Utilities.ExpandVariables(msg.format, msg.variables);
@@ -154,29 +106,23 @@ namespace VSCodeDebug
             toVSCode.SendMessage(response);
         }
 
-        void Disconnect(string command, int seq, dynamic arguments)
-        {
-            if (process != null)
-            {
-                try
-                {
-                    process.Kill();
+        void Disconnect(string command, int seq, dynamic arguments) {
+            if (process != null) {
+                try {
+                    // TODO
+                    //process.Kill();
                 }
-                catch(Exception)
-                {
-                    // 정상 종료하면 이쪽 경로로 들어온다.
+                catch(Exception) {
+                    // If it exits normally, it comes in this path.
                 }
                 process = null;
             }
-
             SendResponse(command, seq, null);
             toVSCode.Stop();
         }
 
-        void Initialize(string command, int seq, dynamic args)
-        {
-            SendResponse(command, seq, new Capabilities()
-            {
+        void Initialize(string command, int seq, dynamic args) {
+            SendResponse(command, seq, new Capabilities() {
                 supportsConfigurationDoneRequest = true,
                 supportsFunctionBreakpoints = false,
                 supportsConditionalBreakpoints = false,
@@ -185,129 +131,32 @@ namespace VSCodeDebug
             });
         }
 
-        public static string GetFullPath(string fileName)
-        {
-            if (File.Exists(fileName))
-                return Path.GetFullPath(fileName);
-
-            var values = Environment.GetEnvironmentVariable("PATH");
-            foreach (var path in values.Split(Path.PathSeparator))
-            {
-                var fullPath = Path.Combine(path, fileName);
-                if (File.Exists(fullPath))
-                    return fullPath;
-            }
-            return null;
-        }
-        
-        void Launch(string command, int seq, dynamic args)
-        {
-            // 런치 전에 디버기가 접속할 수 있게 포트를 먼저 열어야 한다.
-            var listener = PrepareForDebuggee(command, seq, args);
-            AcceptDebuggee(command, seq, args, listener);
+        void Launch(string command, int seq, dynamic args) {
+            // TODO
+            Attach(command, seq, args);
         }
 
-        void Attach(string command, int seq, dynamic args)
-        {
-            var listener = PrepareForDebuggee(command, seq, args);
-            AcceptDebuggee(command, seq, args, listener);
-        }
+        void Attach(string command, int seq, dynamic args) {
+            Program.WaitingUI.SetLabelText("Waiting for debugee ... "); // listener.LocalEndpoint.ToString() + "...");
 
-        TcpListener PrepareForDebuggee(string command, int seq, dynamic args)
-        {
-            IPAddress listenAddr = (bool)args.listenPublicly
-                ? IPAddress.Any
-                : IPAddress.Parse("127.0.0.1");
-            int port = (int)args.listenPort;
-
-            TcpListener listener = new TcpListener(listenAddr, port);
-            listener.Start();
-            return listener;
-        }
-
-        void AcceptDebuggee(string command, int seq, dynamic args, TcpListener listener)
-        {
-            if (!ReadBasicConfiguration(command, seq, args)) { return; }
-
-            var encodingName = (string)args.encoding;
-            Encoding encoding;
-            if (encodingName != null)
-            {
-                int codepage;
-                if (int.TryParse(encodingName, out codepage))
-                {
-                    encoding = Encoding.GetEncoding(codepage);
-                }
-                else
-                {
-                    encoding = Encoding.GetEncoding(encodingName);
-                }
-            }
-            else
-            {
-                encoding = Encoding.UTF8;
-            }
-
-            Program.WaitingUI.SetLabelText(
-                "Waiting for debugee at TCP " +
-                listener.LocalEndpoint.ToString() + "...");
-
-            var ncom = new DebuggeeProtocol(
-                this,
-                listener,
-                encoding);
             this.startCommand = command;
             this.startSeq = seq;
-            ncom.StartThread();
+            DebuggeeServer.StartListener(this, args);
         }
 
-        bool ReadBasicConfiguration(string command, int seq, dynamic args)
-        {
-            workingDirectory = (string)args.workingDirectory;
-            if (workingDirectory == null) { workingDirectory = ""; }
 
-            workingDirectory = workingDirectory.Trim();
-            if (workingDirectory.Length == 0)
-            {
-                SendErrorResponse(command, seq, 3003, "Property 'workingDirectory' is empty.");
-                return false;
-            }
-            if (!Directory.Exists(workingDirectory))
-            {
-                SendErrorResponse(command, seq, 3004, "Working directory '{path}' does not exist.", new { path = workingDirectory });
-                return false;
-            }
-
-            if (args.sourceBasePath != null)
-            {
-                sourceBasePath = (string)args.sourceBasePath;
-            }
-            else
-            {
-                sourceBasePath = workingDirectory;
-            }
-
-            return true;
-        }
-
-        void IDebuggeeListener.X_DebuggeeArrived(IDebuggeeSender toDebuggee)
-        {
-            lock (this)
-            {
-                if (fakeBreakpointMode != null) { return; }
-                this.toDebuggee = toDebuggee;
+        void IDebuggeeListener.X_DebuggeeArrived(IDebuggee debuggee) {
+            lock (this) {
+                this.debuggee = debuggee;
 
                 Program.WaitingUI.BeginInvoke(new Action(() => {
                     Program.WaitingUI.Hide();
                 }));
                 
-                var welcome = new
-                {
+                var welcome = new {
                     command = "welcome",
-                    sourceBasePath = sourceBasePath,
-                    directorySeperator = Path.DirectorySeparatorChar,
                 };
-                toDebuggee.Send(JsonConvert.SerializeObject(welcome));
+                debuggee.SendToDebuggee(JsonConvert.SerializeObject(welcome));
 
                 SendResponse(startCommand, startSeq, null);
                 toVSCode.SendMessage(new InitializedEvent());
@@ -315,21 +164,15 @@ namespace VSCodeDebug
             }
         }
 
-        void IDebuggeeListener.X_FromDebuggee(byte[] json)
-        {
-            lock (this)
-            {
-                if (fakeBreakpointMode != null) { return; }
+        void IDebuggeeListener.X_FromDebuggee(byte[] json) {
+            lock (this) {
                 toVSCode.SendJSONEncodedMessage(json);
             }
         }
 
-        void IDebuggeeListener.X_DebuggeeHasGone()
-        {
-            System.Threading.Thread.Sleep(500);
-            lock (this)
-            {
-                if (fakeBreakpointMode != null) { return; }
+        void IDebuggeeListener.X_DebuggeeHasGone() {
+            //System.Threading.Thread.Sleep(500);
+            lock (this) {
                 toVSCode.SendMessage(new TerminatedEvent());
             }
         }

@@ -1,7 +1,6 @@
 ﻿namespace VSCodeDebug
 {
-    public interface ICDPListener
-    {
+    public interface ICDPListener {
         void X_FromVSCode(string command, int seq, dynamic args, string reqText);
     }
 }

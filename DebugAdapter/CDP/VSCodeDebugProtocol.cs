@@ -24,9 +24,9 @@ namespace VSCodeDebug
 		protected const string TWO_CRLF = "\r\n\r\n";
 		protected static readonly Regex CONTENT_LENGTH_MATCHER = new Regex(@"Content-Length: (\d+)");
 
-		protected static readonly Encoding Encoding = System.Text.Encoding.UTF8;
+        protected static readonly Encoding Encoding = System.Text.Encoding.UTF8;
 
-		private Stream _outputStream;
+        private Stream _outputStream;
 
 		private ByteBuffer _rawData;
 		private int _bodyLength;
@@ -35,15 +35,13 @@ namespace VSCodeDebug
 
         private ICDPListener listener;
 
-		public VSCodeDebugProtocol(ICDPListener listener)
-        {
+		public VSCodeDebugProtocol(ICDPListener listener) {
 			_bodyLength = -1;
 			_rawData = new ByteBuffer();
             this.listener = listener;
 		}
 
-		public void Loop(Stream inputStream, Stream outputStream)
-		{
+		public void Loop(Stream inputStream, Stream outputStream) {
 			_outputStream = outputStream;
 
 			byte[] buffer = new byte[BUFFER_SIZE];
@@ -64,15 +62,13 @@ namespace VSCodeDebug
 			}
 		}
 
-		public void Stop()
-		{
+		public void Stop() {
 			_stopRequested = true;
 		}
 
 		// ---- private ------------------------------------------------------------------------
 
-		private void ProcessData()
-		{
+		private void ProcessData() {
 			while (true) {
 				if (_bodyLength >= 0) {
 					if (_rawData.Length >= _bodyLength) {
@@ -84,8 +80,7 @@ namespace VSCodeDebug
 
 						continue;   // there may be more complete messages to process
 					}
-				}
-				else {
+				} else {
 					string s = _rawData.GetString(Encoding);
 					var idx = s.IndexOf(TWO_CRLF);
 					if (idx != -1) {
@@ -103,56 +98,44 @@ namespace VSCodeDebug
 			}
 		}
 
-		private void Dispatch(string reqText)
-		{
+		private void Dispatch(string reqText) {
 			var request = JsonConvert.DeserializeObject<Request>(reqText);
-			if (request != null && request.type == "request")
-            {
+			if (request != null && request.type == "request") {
                 listener.X_FromVSCode(request.command, request.seq, request.arguments, reqText);
-            }
-            else
-            {
+            } else {
                 MessageBox.WTF(reqText);
                 Environment.Exit(1);
             }
 		}
 
-		public void SendMessage(MessageToVSCode message)
-		{
+		public void SendMessage(MessageToVSCode message) {
 			var data = ConvertToBytes(message);
 			try {
 				_outputStream.Write(data, 0, data.Length);
 				_outputStream.Flush();
-			}
-			catch (Exception) {
+			} catch (Exception) {
 				// ignore
 			}
 		}
 
-        public void SendJSONEncodedMessage(byte[] json)
-        {
+        public void SendJSONEncodedMessage(byte[] json) {
             var data = PrependSizeHeader(json);
-            try
-            {
+            try {
                 _outputStream.Write(data, 0, data.Length);
                 _outputStream.Flush();
-            }
-            catch (Exception)
-            {
+            } catch (Exception) {
                 // ignore
             }
         }
 
-        private static byte[] ConvertToBytes(MessageToVSCode message)
-		{
+        private static byte[] ConvertToBytes(MessageToVSCode message) {
 			var asJson = JsonConvert.SerializeObject(message);
 			byte[] jsonBytes = Encoding.GetBytes(asJson);
 
             return PrependSizeHeader(jsonBytes);
 		}
 
-        private static byte[] PrependSizeHeader(byte[] jsonBytes)
-        {
+        private static byte[] PrependSizeHeader(byte[] jsonBytes) {
             string header = string.Format("Content-Length: {0}{1}", jsonBytes.Length, TWO_CRLF);
             byte[] headerBytes = Encoding.GetBytes(header);
 
@@ -163,10 +146,8 @@ namespace VSCodeDebug
             return data;
         }
 
-        public void SendOutput(string category, string data)
-        {
-            if (!String.IsNullOrEmpty(data))
-            {
+        public void SendOutput(string category, string data) {
+            if (!String.IsNullOrEmpty(data)) {
                 SendMessage(new OutputEvent(category, data));
             }
         }
@@ -186,21 +167,18 @@ namespace VSCodeDebug
 			get { return _buffer.Length; }
 		}
 
-		public string GetString(Encoding enc)
-		{
+		public string GetString(Encoding enc) {
 			return enc.GetString(_buffer);
 		}
 
-		public void Append(byte[] b, int length)
-		{
+		public void Append(byte[] b, int length) {
 			byte[] newBuffer = new byte[_buffer.Length + length];
 			System.Buffer.BlockCopy(_buffer, 0, newBuffer, 0, _buffer.Length);
 			System.Buffer.BlockCopy(b, 0, newBuffer, _buffer.Length, length);
 			_buffer = newBuffer;
 		}
 
-		public byte[] RemoveFirst(int n)
-		{
+		public byte[] RemoveFirst(int n) {
 			byte[] b = new byte[n];
 			System.Buffer.BlockCopy(_buffer, 0, b, 0, n);
 			byte[] newBuffer = new byte[_buffer.Length - n];
