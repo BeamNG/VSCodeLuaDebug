@@ -134,8 +134,96 @@ namespace VSCodeDebug
             });
         }
 
+        public static string GetFullPath(string fileName) {
+            if (File.Exists(fileName))
+                return Path.GetFullPath(fileName);
+
+            var values = Environment.GetEnvironmentVariable("PATH");
+            foreach (var path in values.Split(Path.PathSeparator)) {
+                var fullPath = Path.Combine(path, fileName);
+                if (File.Exists(fullPath))
+                    return fullPath;
+            }
+            return null;
+        }
+
         void Launch(string command, int seq, dynamic args) {
-            // TODO
+            var arguments = (string)args.arguments;
+            if (arguments == null) { arguments = ""; }
+
+            // working directory
+            string workingDirectory = (string)args.workingDirectory;
+            if (workingDirectory == null) { workingDirectory = ""; }
+
+            workingDirectory = workingDirectory.Trim();
+            if (workingDirectory.Length == 0) {
+                SendErrorResponse(command, seq, 3003, "Property 'workingDirectory' is empty.");
+                return;
+            }
+            if (!Directory.Exists(workingDirectory)) {
+                SendErrorResponse(command, seq, 3004, "Working directory '{path}' does not exist.", new { path = workingDirectory });
+                return;
+            }
+
+            // executable
+            var runtimeExecutable = (string)args.executable;
+            if (runtimeExecutable == null) { runtimeExecutable = ""; }
+
+            runtimeExecutable = runtimeExecutable.Trim();
+            if (runtimeExecutable.Length == 0) {
+                SendErrorResponse(command, seq, 3005, "Property 'executable' is empty.");
+                return;
+            }
+            var runtimeExecutableFull = GetFullPath(runtimeExecutable);
+            if (runtimeExecutableFull == null) {
+                SendErrorResponse(command, seq, 3006, "Runtime executable '{path}' does not exist.", new { path = runtimeExecutable });
+                return;
+            }
+
+            // validate argument 'env'
+            Dictionary<string, string> env = null;
+            var environmentVariables = args.env;
+            if (environmentVariables != null) {
+                env = new Dictionary<string, string>();
+                foreach (var entry in environmentVariables) {
+                    env.Add((string)entry.Name, entry.Value.ToString());
+                }
+                if (env.Count == 0) {
+                    env = null;
+                }
+            }
+
+            process = new Process();
+            process.StartInfo.CreateNoWindow = false;
+            process.StartInfo.WindowStyle = ProcessWindowStyle.Normal;
+            process.StartInfo.UseShellExecute = true;
+            process.StartInfo.WorkingDirectory = workingDirectory;
+            process.StartInfo.FileName = runtimeExecutableFull;
+            process.StartInfo.Arguments = arguments;
+
+            process.EnableRaisingEvents = true;
+            process.Exited += (object sender, EventArgs e) => {
+                lock (this) {
+                    toVSCode.SendMessage(new TerminatedEvent());
+                }
+            };
+
+            if (env != null) {
+                foreach (var entry in env) {
+                    System.Environment.SetEnvironmentVariable(entry.Key, entry.Value);
+                }
+            }
+
+            var cmd = string.Format("{0} {1}\n", runtimeExecutableFull, arguments);
+            toVSCode.SendOutput("console", cmd);
+
+            try {
+                process.Start();
+            } catch (Exception e) {
+                SendErrorResponse(command, seq, 3012, "Can't launch terminal ({reason}).", new { reason = e.Message });
+                return;
+            }
+
             Attach(command, seq, args);
         }
 
