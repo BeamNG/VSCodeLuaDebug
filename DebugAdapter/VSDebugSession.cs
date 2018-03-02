@@ -183,7 +183,7 @@ namespace VSCodeDebug
                             Utilities.LogMessageToFile("Associated thread: " + jThread.body.threads[ti].id + " -> " + debugee);
                         }
                     }
-                } catch(Exception e) {
+                } catch(Exception /*e*/) {
                     //Utilities.LogMessageToFile("Exception in VSDebuggeeMessage: " + e);
                 }
                 toVSCode.SendJSONEncodedMessage(json);
