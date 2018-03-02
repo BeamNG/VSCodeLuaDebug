@@ -20,10 +20,15 @@ namespace VSCodeDebug
             this.networkStream = networkStream;
         }
 
+        private void Disconnect() {
+            // let VS know we are gone
+            debuggeeListener.VSDebuggeeDisconnected(this);
+        }
+
         public void RunSession() {
             try {
                 ByteBuffer recvBuffer = new ByteBuffer();
-                debuggeeListener.X_DebuggeeArrived(this);
+                debuggeeListener.VSDebuggeeConnected(this);
                 var tempBuffer = new byte[9046];
                 while (true) {
                     var read = networkStream.Read(tempBuffer, 0, tempBuffer.Length);
@@ -37,7 +42,7 @@ namespace VSCodeDebug
             } catch (Exception /*e*/) {
                 //Program.MessageBox(IntPtr.Zero, e.ToString(), "LuaDebug", 0);
             }
-            debuggeeListener.X_DebuggeeHasGone();
+            Disconnect();
         }
 
         bool ProcessData(ref ByteBuffer recvBuffer) {
@@ -59,7 +64,7 @@ namespace VSCodeDebug
             string body = encoding.GetString(bodyBytes);
             //MessageBox.OK(body);
 
-            debuggeeListener.X_FromDebuggee(bodyBytes);
+            Disconnect();
             return true;
         }
 
@@ -71,7 +76,7 @@ namespace VSCodeDebug
                 networkStream.Write(headerBytes, 0, headerBytes.Length);
                 networkStream.Write(bodyBytes, 0, bodyBytes.Length);
             } catch (IOException) {
-                debuggeeListener.X_DebuggeeHasGone();
+                Disconnect();
             }
         }
     }

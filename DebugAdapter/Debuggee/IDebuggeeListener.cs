@@ -2,8 +2,8 @@
 {
     public interface IDebuggeeListener
     {
-        void X_DebuggeeArrived(IDebuggee debugee);
-        void X_FromDebuggee(byte[] json);
-        void X_DebuggeeHasGone();
+        void VSDebuggeeConnected(IDebuggee debugee);
+        void VSDebuggeeDisconnected(IDebuggee debugee);
+        void VSDebuggeeMessage(IDebuggee debugee, byte[] json);
     }
 }

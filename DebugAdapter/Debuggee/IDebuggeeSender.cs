@@ -1,7 +1,6 @@
 ﻿namespace VSCodeDebug
 {
-    public interface IDebuggee
-    {
+    public interface IDebuggee {
         void SendToDebuggee(string reqText);
     }
 }

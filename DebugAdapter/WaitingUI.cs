@@ -57,7 +57,7 @@ namespace VSCodeDebug
             this.ClientSize = new System.Drawing.Size(551, 91);
             this.Controls.Add(this.label1);
             this.Name = "WaitingUI";
-            this.Text = "Lua Debugger by devCAT";
+            this.Text = "LuaJIT Debugger";
             this.ResumeLayout(false);
 
         }

@@ -145,7 +145,7 @@ namespace VSCodeDebug
         }
 
 
-        void IDebuggeeListener.X_DebuggeeArrived(IDebuggee debuggee) {
+        void IDebuggeeListener.VSDebuggeeConnected(IDebuggee debuggee) {
             lock (this) {
                 this.debuggee = debuggee;
 
@@ -164,13 +164,13 @@ namespace VSCodeDebug
             }
         }
 
-        void IDebuggeeListener.X_FromDebuggee(byte[] json) {
+        void IDebuggeeListener.VSDebuggeeMessage(IDebuggee debugee, byte[] json) {
             lock (this) {
                 toVSCode.SendJSONEncodedMessage(json);
             }
         }
 
-        void IDebuggeeListener.X_DebuggeeHasGone() {
+        void IDebuggeeListener.VSDebuggeeDisconnected(IDebuggee debugee) {
             //System.Threading.Thread.Sleep(500);
             lock (this) {
                 toVSCode.SendMessage(new TerminatedEvent());
