@@ -268,7 +268,7 @@ namespace VSCodeDebug
                         ThreadResponse jThread = JsonConvert.DeserializeObject<ThreadResponse>(jsonString);
                         for(int ti = 0; ti < jThread.body.threads.Count; ti++) {
                             debuggeeThreads.Add(jThread.body.threads[ti].id, debugee);
-                            Utilities.LogMessageToFile("Associated thread: " + jThread.body.threads[ti].id + " -> " + debugee);
+                            //Utilities.LogMessageToFile("Associated thread: " + jThread.body.threads[ti].id + " -> " + debugee.GetHashCode());
                         }
                     }
                 } catch(Exception /*e*/) {
@@ -307,7 +307,7 @@ namespace VSCodeDebug
             } catch(Exception e) {
                 Utilities.LogMessageToFile("Exception in FindAndSendToDebuggee: " + e);
             }
-            Utilities.LogMessageToFile("[[Broadcast]]");
+            //Utilities.LogMessageToFile("[[Broadcast]]");
             sendToEveryone(jsonText);
         }
     }
