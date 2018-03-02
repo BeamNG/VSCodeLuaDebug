@@ -177,17 +177,14 @@ namespace VSCodeDebug
                     string jsonString = encoding.GetString(json);
                     var j = JsonConvert.DeserializeObject<Response>(jsonString);
                     if (j.command == "threads" && j.type == "response") {
-                        // TODO
                         ThreadResponse jThread = JsonConvert.DeserializeObject<ThreadResponse>(jsonString);
                         for(int ti = 0; ti < jThread.body.threads.Count; ti++) {
                             debuggeeThreads.Add(jThread.body.threads[ti].id, debugee);
                             Utilities.LogMessageToFile("Associated thread: " + jThread.body.threads[ti].id + " -> " + debugee);
                         }
-                        
-
                     }
                 } catch(Exception e) {
-                    Utilities.LogMessageToFile("Exception in VSDebuggeeMessage: " + e);
+                    //Utilities.LogMessageToFile("Exception in VSDebuggeeMessage: " + e);
                 }
                 toVSCode.SendJSONEncodedMessage(json);
             }
