@@ -1,30 +1,31 @@
 #!/usr/bin/python3
 
+# this file implements a dummy vscode debugger host
+# the purpose is to be able to profile the debugger
+
 import socket
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import time
 import threading
 import json
 
-
-hostName = "localhost"
-hostPort = 56789
-
+# readline for sockets
 def socketReadline(sock):
   tmp = ''
   while True:
-    data = sock.recv(1).decode()
-    tmp = tmp + data
-    if '\n' in data: break
+    c = sock.recv(1).decode()
+    tmp = tmp + c
+    if c == '\n': break
   return tmp
 
-def send(conn, data):
+# protocol is '#<bodysize>\n<body>
+def sendPacket(conn, data):
   body = json.dumps(data)
   print('S|>|' + body)
   packet = '#' + str(len(body)) + "\n" + body
   conn.send(packet.encode())
 
-def receive(conn):
+def receivePacket(conn):
   header = socketReadline(conn)
   if not header or header[0] != '#':
     print("== protocol error: got header: '"+ header+"'")
@@ -37,31 +38,34 @@ def receive(conn):
   return json.loads(body)
 
 def connectionHandler(conn, addr):
-  print('Connection address:', addr)
-  send(conn, {'command': 'welcome', 'sourceBasePath': '.'})
-
-  while 1:
-      data = receive(conn)
+  print('S|new client connected:', addr)
+  sendPacket(conn, {'command': 'welcome', 'sourceBasePath': '.'})
+  while True:
+      data = receivePacket(conn)
       # TODO: actually do sth with the data? ;)
       #print("data: " + str(data))
       if not data:
         break
-  print('client gone: ' + str(conn))
+  print('S|client gone:', addr)
 
-def dummyVSCodeServerMain():
+# accept any clients and spawn a new thread for them to handle their protocol
+def dummyVSCodeServerMain(listenAddress, listenPort):
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.bind((hostName, hostPort))
-  s.listen(1)
+  s.bind((listenAddress, listenPort))
+  s.listen()
 
-  while 1:
+  while True:
     conn, addr = s.accept()
     thread = threading.Thread(target = connectionHandler, args = (conn, addr))
     thread.daemon = True
     thread.start()
 
-
-def startVSCodeDummyServer():
-  thread = threading.Thread(target = dummyVSCodeServerMain)
+# server main
+def startVSCodeDummyServer(listenAddress = "localhost", listenPort = 56789):
+  thread = threading.Thread(target = dummyVSCodeServerMain, args = (listenAddress, listenPort))
   thread.daemon = True
   thread.start()
-  return thread #thread.join()
+  return thread
+
+if __name__ == "__main__":
+  startVSCodeDummyServer()
