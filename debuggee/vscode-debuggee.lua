@@ -1,1038 +1,957 @@
-local debuggee = {}
+--[[
+Copyright (c) NEXON Korea Corporation
+Copyright (c) BeamNG GmbH
 
-local socket = require 'socket.core'
+All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+--]]
+
+local M = {}
+
+local hassocket, socket = pcall(require, 'socket')
 local json
 local handlers = {}
-local sock
-local directorySeperator = '\\'
+local sock = nil
+
 local sourceBasePath = '.'
 local storedVariables = {}
 local nextVarRef = 1
-local baseDepth
-local breaker
-local sendEvent
-local dumpCommunication = false
 local ignoreFirstFrameInC = false
 local debugTargetCo = nil
-local redirectedPrintFunction = nil
+local originalPrintFunction = nil
 
-local onError = nil
+local instanceName = tostring(M)
+local logtag = 'debugger.' .. instanceName
 
-local function defaultOnError(e)
-	print('****************************************************')
-	print(e)
-	print('****************************************************')
-end
+local breakFileMap = {}
+local normalBreakPoints = {}
 
-local function valueToString(value, depth)
-	local str = ''
-	depth = depth or 0
-	local t = type(value)
-	if t == 'table' then
-		str = str .. '{\n'
-		for k, v in pairs(value) do
-			str = str .. string.rep('  ', depth + 1) .. '[' .. valueToString(k) ..']' .. ' = ' .. valueToString(v, depth + 1) .. ',\n'
-		end
-		str = str .. string.rep('  ', depth) .. '}'
-	elseif t == 'string' then
-		str = str .. '"' .. tostring(value) .. '"'
-	else
-		str = str .. tostring(value)
-	end
-	return str
-end
+local coroutineSet = {}
+setmetatable(coroutineSet, { __mode = 'v' }) -- mark it as weak table: do not free the values
 
--------------------------------------------------------------------------------
-local sethook = debug.sethook
+local debugComm = function() end
+local sockArray = {}
+
+local lastHaltInfo = nil
+
+-- make sure sethook is not use by anyone else by overloading the API :)
+local sethook, d_getinfo = debug.sethook, debug.getinfo
+local string_find, string_sub = string.find, string.sub
 debug.sethook = nil
 
-local cocreate = coroutine.create
+-- overload coroutine.create to be able to notify the remote debugger
+local cocreateOriginal = coroutine.create
 coroutine.create = function(f)
-	local c = cocreate(f)
-	debuggee.addCoroutine(c)
-	return c
+  local c = cocreateOriginal(f)
+  M.addCoroutine(c)
+  return c
+end
+
+local function defaultLogFunc(level, origin, msg)
+  print(tostring(level) .. '|' .. tostring(origin) .. '|' .. tostring(msg))
+end
+
+local log = defaultLogFunc
+
+-- converts VSCode paths to local paths
+-- currently converts C:\something\some\other\folder\lua\foo\a.lua to lua/foo/a.lua
+local function vsCodePathToLocalPath(dir)
+  dir = dir:gsub("\\", "/")
+  dir = dir:gsub("//", "/")
+  --dir = string.lower(dir)
+
+  -- find lua/
+  local luaDirFound = dir:find('lua/')
+  if not luaDirFound then
+    log('E', logtag, 'invalid path to debug received: ' .. tostring(_dir))
+    return nil
+  end
+
+  return '@' .. dir:sub(luaDirFound)
 end
 
 -------------------------------------------------------------------------------
 local function debug_getinfo(depth, what)
-	if debugTargetCo then
-		return debug.getinfo(debugTargetCo, depth, what)
-	else
-		return debug.getinfo(depth + 1, what)
-	end
+  if debugTargetCo then
+    return debug.getinfo(debugTargetCo, depth, what)
+  else
+    return debug.getinfo(depth + 1, what)
+  end
 end
 
 -------------------------------------------------------------------------------
 local function debug_getlocal(depth, i)
-	if debugTargetCo then
-		return debug.getlocal(debugTargetCo, depth, i)
-	else
-		return debug.getlocal(depth + 1, i)
-	end
+  if debugTargetCo then
+    if debug.getinfo(debugTargetCo, depth, 'l') then
+      return debug.getlocal(debugTargetCo, depth, i)
+    end
+  else
+    if debug.getinfo(depth, 'l') then
+      return debug.getlocal(depth + 1, i)
+    end
+  end
 end
 
--------------------------------------------------------------------------------
-local DO_TEST = false
-
--------------------------------------------------------------------------------
--- chunkname 매칭 {{{
-local function getMatchCount(a, b)
-	local n = math.min(#a, #b)
-	for i = 0, n - 1 do
-		if a[#a - i] == b[#b - i] then
-			-- pass
-		else
-			return i
-		end
-	end
-	return n
-end
-if DO_TEST then
-	assert(getMatchCount({'a','b','c'}, {'a','b','c'}) == 3)
-	assert(getMatchCount({'b','c'}, {'a','b','c'}) == 2)
-	assert(getMatchCount({'a','b','c'}, {'b','c'}) == 2)
-	assert(getMatchCount({}, {'a','b','c'}) == 0)
-	assert(getMatchCount({'a','b','c'}, {}) == 0)
-	assert(getMatchCount({'a','b','c'}, {'a','b','c','d'}) == 0)
+local function checkBreakInStack()
+  for i = 2, 9999 do
+    local info = debug.getinfo(i,'S')
+    if info == nil then return false end
+    local bmap = breakFileMap[info.source]
+    if bmap then
+      local linestart, lineend = info.linedefined, info.lastlinedefined
+      for lineBreakPoint, _ in pairs(bmap) do
+        if lineBreakPoint >= linestart and lineBreakPoint <= lineend then
+          return true
+        end
+      end
+    end
+  end
 end
 
-local function splitChunkName(s)
-	if string.sub(s, 1, 1) == '@' then
-		s = string.sub(s, 2)
-	end
+local hookRun = nil
+local hookAccurate = nil
+local hasprofile, profile = pcall(require, 'jit.profile')
+if hasprofile then
+  -- Luajit support
+  local profile_dumpstack = profile.dumpstack
+  local stackBeginAcc = nil
+  hookAccurate = function(event)
+    local st = profile_dumpstack('pl@', 3)
+    stackBeginAcc = stackBeginAcc or string_find(st, '@', 17, true)
+    local stackEnd = string_find(st, ':', stackBeginAcc, true)
+    if not stackEnd then return end
+    local filename = string_sub(st, stackBeginAcc, stackEnd - 1)
 
-	local a = {}
-	for word in string.gmatch(s, '[^/\\]+') do
-		a[#a + 1] = string.lower(word)
-	end
-	return a
+    local lineMap = breakFileMap[filename]
+    if lineMap then
+      local info = d_getinfo(2, 'Sl')
+      local currentline, linebegin, lineend = info.currentline, info.linedefined, info.lastlinedefined
+      local insideRange = false
+      for lineBreakPoint, breakPointType in pairs(lineMap) do
+        if lineBreakPoint >= linebegin and lineBreakPoint <= lineend then
+          insideRange = true
+          if breakPointType == 2 then -- stepOut breakType
+            breakFileMap[filename][lineBreakPoint] = normalBreakPoints[filename][lineBreakPoint]
+            if currentline > lineBreakPoint then
+              _G.__halt__()
+            end
+          else
+            if currentline == lineBreakPoint then
+              breakFileMap[filename][lineBreakPoint] = normalBreakPoints[filename][lineBreakPoint]
+              _G.__halt__()
+            end
+          end
+        end
+      end
+
+      if insideRange or event == 'return' then -- return is actually before returning to the parent function. So go bac into line mode and hope for the best
+        if event ~= 'line' then
+          sethook(hookAccurate, 'l')
+        end
+      else
+        if event == 'line' then
+          if checkBreakInStack() == false then
+            sethook(hookRun, 'c')
+          else
+            sethook(hookAccurate, 'cr')
+          end
+        end
+      end
+    end
+  end
+
+  local stackBegin = nil
+  hookRun = function()
+    local st = profile_dumpstack('pl@', 3)
+    stackBegin = stackBegin or string_find(st, '@', 17, true)
+    local stackEnd = string_find(st, ':', stackBegin, true)
+    if not stackEnd then return end
+    local filename = string_sub(st, stackBegin, stackEnd - 1)
+
+    local lineMap = breakFileMap[filename]
+    if lineMap then
+      local info = d_getinfo(2, 'Sl')
+      local currentline, linebegin, lineend = info.currentline, info.linedefined, info.lastlinedefined
+      local insideRange = false
+      for lineBreakPoint, _ in pairs(lineMap) do
+        if lineBreakPoint >= linebegin and lineBreakPoint <= lineend then
+          insideRange = true
+          if currentline == lineBreakPoint then
+            breakFileMap[filename][lineBreakPoint] = normalBreakPoints[filename][lineBreakPoint]
+            _G.__halt__()
+          end
+        end
+      end
+
+      if insideRange then -- go into accurate mode
+        sethook(hookAccurate, 'lr')
+      end
+    end
+  end
+
+else
+
+  -- Lua support
+  hookAccurate = function(event)
+    local info = d_getinfo(2, 'S')
+    if not info then return end
+
+    local lineMap = breakFileMap[info.source]
+    if lineMap then
+      local currentline = d_getinfo(2, 'l').currentline
+      local source, linebegin, lineend = info.source, info.linedefined, info.lastlinedefined
+      local insideRange = false
+      for lineBreakPoint, breakPointType in pairs(lineMap) do
+        if lineBreakPoint >= linebegin and lineBreakPoint <= lineend then
+          insideRange = true
+          if breakPointType == 2 then -- stepOut breakType
+            breakFileMap[source][lineBreakPoint] = normalBreakPoints[source][lineBreakPoint]
+            if currentline > lineBreakPoint then
+              _G.__halt__()
+            end
+          else
+            if currentline == lineBreakPoint then
+              breakFileMap[source][lineBreakPoint] = normalBreakPoints[source][lineBreakPoint]
+              _G.__halt__()
+            end
+          end
+        end
+      end
+
+      if insideRange or event == 'return' then -- return is actually before returning to the parent function. So go bac into line mode and hope for the best
+        if event ~= 'line' then
+          sethook(hookAccurate, 'l')
+        end
+      else
+        if event == 'line' then
+          if checkBreakInStack() == false then
+            sethook(hookRun, 'c')
+          else
+            sethook(hookAccurate, 'cr')
+          end
+        end
+      end
+    end
+  end
+
+  hookRun = function()
+    local info = d_getinfo(2, 'S')
+    local lineMap = breakFileMap[info.source]
+    if lineMap then
+      local currentline = d_getinfo(2, 'l').currentline
+      local linebegin, lineend = info.linedefined, info.lastlinedefined
+      local insideRange = false
+      for lineBreakPoint, _ in pairs(lineMap) do
+        if lineBreakPoint >= linebegin and lineBreakPoint <= lineend then
+          insideRange = true
+          if currentline == lineBreakPoint then
+            breakFileMap[info.source][lineBreakPoint] = normalBreakPoints[info.source][lineBreakPoint]
+            _G.__halt__()
+          end
+        end
+      end
+
+      if insideRange then -- go into accurate mode
+        sethook(hookAccurate, 'lr')
+      end
+    end
+  end
 end
-if DO_TEST then
-	local a = splitChunkName('@.\\vscode-debuggee.lua')
-	assert(#a == 2)
-	assert(a[1] == '.')
-	assert(a[2] == 'vscode-debuggee.lua')
 
-	local a = splitChunkName('@C:\\dev\\VSCodeLuaDebug\\debuggee/lua\\socket.lua')
-	assert(#a == 6)
-	assert(a[1] == 'c:')
-	assert(a[2] == 'dev')
-	assert(a[3] == 'vscodeluadebug')
-	assert(a[4] == 'debuggee')
-	assert(a[5] == 'lua')
-	assert(a[6] == 'socket.lua')
-
-	local a = splitChunkName('@main.lua')
-	assert(#a == 1)
-	assert(a[1] == 'main.lua')
-end
--- chunkname 매칭 }}}
-
--- 패스 조작 {{{
-local Path = {}
-
-function Path.isAbsolute(a)
-	local firstChar = string.sub(a, 1, 1)
-	if firstChar == '/' or
-	   firstChar == '\\' then
-		return true
-	end
-
-	if string.match(a, '^%a%:[/\\]') then
-		return true
-	end
-
-	return false
+local function hookStep(event)
+  _G.__halt__()
 end
 
-function Path.concat(a, b)
-	-- a를 노멀라이즈
-	local lastChar = string.sub(a, #a, #a)
-	if (lastChar == '/' or lastChar == '\\') then
-		-- pass
-	else
-		a = a .. directorySeperator
-	end
-
-	-- b를 노멀라이즈
-	if string.match(b, '^%.%\\') then
-		b = string.sub(b, 3)
-	end
-
-	return a .. b
+local function hookStepOut(event)
+  local info = d_getinfo(2, 'S')
+  sethook(hookRun, 'cr')
 end
 
-function Path.toAbsolute(base, sub)
-	if Path.isAbsolute(sub) then
-		return sub
-	else
-		return Path.concat(base, sub)
-	end
+-- sends strings
+local function sendString(str)
+  if not sock then return end
+  debugComm(' > ' .. tostring(str))
+  local first = 1
+  while first <= #str do
+    local sent = sock:send(str, first)
+    if sent and sent > 0 then
+      first = first + sent;
+    else
+      log('E', logtag, 'sock:send() returned < 0')
+      M.disconnect()
+    end
+  end
 end
 
-if DO_TEST then
-	assert(Path.isAbsolute('c:\\asdf\\afsd'))
-	assert(Path.isAbsolute('c:/asdf/afsd'))
-	assert(Path.concat('c:\\asdf', 'fdsf') == 'c:\\asdf\\fdsf')
-	assert(Path.concat('c:\\asdf', '.\\fdsf') == 'c:\\asdf\\fdsf')
+-- Sends can also be blocks.
+local function sendMessage(msg)
+  local body = json.encode(msg)
+  sendString('#' .. #body .. '\n' .. body)
 end
--- 패스 조작 }}}
 
-local coroutineSet = {}
-setmetatable(coroutineSet, { __mode = 'v' })
+-- Receive should not be a block ... Um ... Are you okay with the block?
+local function recvMessage()
+  if not sock then
+    log('E', logtag, 'error receiving message: socket not existing')
+    return
+  end
+  local header = sock:receive('*l')
+  if (header == nil) then
+    -- When the debugger is down
+    return nil
+  end
+  if (string.sub(header, 1, 1) ~= '#') then
+    log('E', logtag, 'unknown header:' .. tostring(header))
+  end
 
--------------------------------------------------------------------------------
--- 네트워크 유틸리티 {{{
-local function sendFully(str)
-	local first = 1
-	while first <= #str do
-		local sent = sock:send(str, first)
-		if sent and sent > 0 then
-			first = first + sent;
-		else
-			error('sock:send() returned < 0')
-		end
-	end
+  local bodySize = tonumber(header:sub(2))
+  local body = sock:receive(bodySize)
+  return json.decode(body)
+end
+
+
+local function sendSuccess(req, body)
+  sendMessage({
+    command = req.command,
+    success = true,
+    request_seq = req.seq,
+    type = "response",
+    body = body
+  })
+end
+
+local function sendFailure(req, msg)
+  sendMessage({
+    command = req.command,
+    success = false,
+    request_seq = req.seq,
+    type = "response",
+    message = msg
+  })
+end
+
+local function sendEvent(eventName, body)
+  sendMessage({
+    event = eventName,
+    type = "event",
+    body = body
+  })
 end
 
 -- send log to debug console
 local function logToDebugConsole(output, category)
-	local dumpMsg = {
-		event = 'output',
-		type = 'event',
-		body = {
-			category = category or 'console',
-			output = output
-		}
-	}
-	local dumpBody = json.encode(dumpMsg)
-	sendFully('#' .. #dumpBody .. '\n' .. dumpBody)
+  --dump(output)
+  local dumpMsg = {
+    event = 'output',
+    type = 'event',
+    body = {
+      category = category or 'console',
+      output = output
+    }
+  }
+  local dumpBody = json.encode(dumpMsg)
+  sendString('#' .. #dumpBody .. '\n' .. dumpBody)
 end
 
--- 순정 모드 {{{
-local function createHaltBreaker()
-	-- chunkname 매칭 {
-	local loadedChunkNameMap = {}
-	for chunkname, _ in pairs(debug.getchunknames()) do
-		loadedChunkNameMap[chunkname] = splitChunkName(chunkname)
-	end
-
-	local function findMostSimilarChunkName(path)
-		local splitedReqPath = splitChunkName(path)
-		local maxMatchCount = 0
-		local foundChunkName = nil
-		for chunkName, splitted in pairs(loadedChunkNameMap) do
-			local count = getMatchCount(splitedReqPath, splitted)
-			if (count > maxMatchCount) then
-				maxMatchCount = count
-				foundChunkName = chunkName
-			end
-		end
-		return foundChunkName
-	end
-	-- chunkname 매칭 }
-
-	local lineBreakCallback = nil
-	local function updateCoroutineHook(c)
-		if lineBreakCallback then
-			sethook(c, lineBreakCallback, 'l')
-		else
-			sethook(c)
-		end
-	end
-	local function sethalt(cname, ln)
-		for i = ln, ln + 10 do
-			if debug.sethalt(cname, i) then
-				return i
-			end
-		end
-		return nil
-	end
-	return {
-		setBreakpoints = function(path, lines)
-			local foundChunkName = findMostSimilarChunkName(path)
-			local verifiedLines = {}
-
-			if foundChunkName then
-				debug.clearhalt(foundChunkName)
-				for _, ln in ipairs(lines) do
-					verifiedLines[ln] = sethalt(foundChunkName, ln)
-				end
-			end
-
-			return verifiedLines
-		end,
-
-		setLineBreak = function(callback)
-			if callback then
-				sethook(callback, 'l')
-			else
-				sethook()
-			end
-
-			lineBreakCallback = callback
-			for cid, c in pairs(coroutineSet) do
-				updateCoroutineHook(c)
-			end
-		end,
-
-		coroutineAdded = function(c)
-			updateCoroutineHook(c)
-		end,
-
-		-- 실험적으로 알아낸 값들-_-ㅅㅂ
-		stackOffset =
-		{
-			enterDebugLoop = 6,
-			halt = 6,
-			step = 4,
-			stepDebugLoop = 6
-		}
-	}
+local function printToDebugConsole(...)
+  local t = { n = select("#", ...), ... }
+  for i = 1, #t do
+    t[i] = tostring(t[i])
+  end
+  sendEvent('output', {
+      category = 'stdout',
+      output = table.concat(t, '\t') .. '\n' -- Same as default "print" output end new line.
+    })
 end
 
-local function createPureBreaker()
-	local lineBreakCallback = nil
-	local breakpointsPerPath = {}
-	local chunknameToPathCache = {}
-
-	local function chunkNameToPath(chunkname)
-		local cached = chunknameToPathCache[chunkname]
-		if cached then
-			return cached
-		end
-
-		local splitedReqPath = splitChunkName(chunkname)
-		local maxMatchCount = 0
-		local foundPath = nil
-		for path, _ in pairs(breakpointsPerPath) do
-			local splitted = splitChunkName(path)
-			local count = getMatchCount(splitedReqPath, splitted)
-			if (count > maxMatchCount) then
-				maxMatchCount = count
-				foundPath = path
-			end
-		end
-
-		if foundPath then
-			chunknameToPathCache[chunkname] = foundPath
-		end
-		return foundPath
-	end
-
-	local entered = false
-	local function hookfunc()
-		if entered then return false end
-		entered = true
-
-		if lineBreakCallback then
-			lineBreakCallback()
-		end
-
-		local info = debug_getinfo(2, 'Sl')
-		if info then
-			local path = chunkNameToPath(info.source)
-			if path then
-				path = string.lower(path)
-			end
-			local bpSet = breakpointsPerPath[path]
-			if bpSet and bpSet[info.currentline] then
-				_G.__halt__()
-			end
-		end
-
-		entered = false
-	end
-	sethook(hookfunc, 'l')
-
-	return {
-		setBreakpoints = function(path, lines)
-			local t = {}
-			local verifiedLines = {}
-			for _, ln in ipairs(lines) do
-				t[ln] = true
-				verifiedLines[ln] = ln
-			end
-			if path then
-				path = string.lower(path)
-			end
-			breakpointsPerPath[path] = t
-			return verifiedLines
-		end,
-
-		setLineBreak = function(callback)
-			lineBreakCallback = callback
-		end,
-
-		coroutineAdded = function(c)
-			sethook(c, hookfunc, 'l')
-		end,
-
-		-- 실험적으로 알아낸 값들-_-ㅅㅂ
-		stackOffset =
-		{
-			enterDebugLoop = 6,
-			halt = 7,
-			step = 4,
-			stepDebugLoop = 7
-		}
-	}
-end
-
--- 순정 모드 }}}
-
-
--- 센드는 블럭이어도 됨.
-local function sendMessage(msg)
-	local body = json.encode(msg)
-
-	if dumpCommunication then
-		logToDebugConsole('[SENDING] ' .. valueToString(msg))
-	end
-
-	sendFully('#' .. #body .. '\n' .. body)
-end
-
--- 리시브는 블럭이 아니어야 할 거 같은데... 음... 블럭이어도 괜찮나?
-local function recvMessage()
-	local header = sock:receive('*l')
-	if (header == nil) then
-		-- 디버거가 떨어진 상황
-		return nil
-	end
-	if (string.sub(header, 1, 1) ~= '#') then
-		error('헤더 이상함:' .. header)
-	end
-
-	local bodySize = tonumber(header:sub(2))
-	local body = sock:receive(bodySize)
-
-	return json.decode(body)
-end
--- 네트워크 유틸리티 }}}
-
--------------------------------------------------------------------------------
 local function debugLoop()
-	storedVariables = {}
-	nextVarRef = 1
-	while true do
-		local msg = recvMessage()
-		if msg then
-			if dumpCommunication then
-				logToDebugConsole('[RECEIVED] ' .. valueToString(msg), 'stderr')
-			end
+  storedVariables = {}
+  nextVarRef = 1
+  while true do
+    local msg = recvMessage()
+    if not msg then
+      -- Debugger dropped while debugging.
+      -- If you redirect the print function, return it to its original state
+      M.disconnect()
+      break
+    end
 
-			local fn = handlers[msg.command]
-			if fn then
-				local rv = fn(msg)
+    debugComm(' < ' .. dumps(msg), 'stderr')
 
-				-- continue인데 break하는 게 역설적으로 느껴지지만
-				-- 디버그 루프를 탈출(break)해야 정상 실행 흐름을 계속(continue)할 수 있지..
-				if (rv == 'CONTINUE') then
-					break;
-				end
-			else
-				--print('UNKNOWN DEBUG COMMAND: ' .. tostring(msg.command))
-			end
-		else
-			-- 디버그 중에 디버거가 떨어졌다.
-			-- print펑션을 리다이렉트 한경우에는 원래대로 돌려놓는다
-			if redirectedPrintFunction then
-				_G.print = redirectedPrintFunction
-			end
-			break
-		end
-	end
-	storedVariables = {}
-	nextVarRef = 1
+    local fn = handlers[msg.command]
+    if fn then
+      local rv = fn(msg)
+
+      -- It's continue, but it feels paradoxical to break
+      -- You can break the debug loop to continue the normal execution flow.
+      if (rv == 'CONTINUE') then
+        break;
+      end
+    else
+      log('E', logtag, 'UNKNOWN DEBUG COMMAND: ' .. tostring(msg.command))
+    end
+  end
+  -- cleanup
+  storedVariables = {}
+  nextVarRef = 1
+end
+
+function M.disconnect()
+  if originalPrintFunction then
+    _G.print = originalPrintFunction
+    originalPrintFunction = nil
+  end
+  sock = nil
+  log('E', logtag, 'connection to VSCode dropped')
+end
+
+function M.start(_instanceName, config)
+
+  instanceName = _instanceName or 'main'
+  logtag = 'debugger.' .. instanceName
+
+  config = config or {}
+  local connectTimeout = config.connectTimeout or 10.0
+  local connectRetries = 3
+  local controllerHost = config.controllerHost or 'localhost'
+  local controllerPort = config.controllerPort or 56789
+  log = config.logFunc or defaultLogFunc
+  ignoreFirstFrameInC  = config.ignoreFirstFrameInC or false
+  json = config.json or require('dkjson')
+  assert(json)
+
+  -- debug comm:
+  --debugComm = print -- logToDebugConsole
+
+  -- connect to vscode
+  local successful = false
+  for i = 1, connectRetries do
+    log('A', logtag, 'connecting ... (' .. tostring(i) .. ')')
+    local err = nil
+    sock, err = socket.tcp()
+    if not sock then
+      log('E', logtag, 'error creating socket: ' .. tostring(err))
+      sock = nil
+      socket.sleep(1)
+      goto continue
+    end
+    sockArray = { sock }
+    sock:settimeout(connectTimeout) -- set the timeout for connecting only
+    local res, err = sock:connect(controllerHost, tostring(controllerPort))
+    if not res then
+      log('E', logtag, 'error connecting socket: ' .. tostring(err))
+      sock:close()
+      sock = nil
+      socket.sleep(1)
+      goto continue
+    else
+      sock:settimeout() -- block indefinity ater being connected
+      sock:setoption('tcp-nodelay', true) -- Setting this option to true disables the Nagle's algorithm for the connection.
+      successful = true
+      break
+    end
+    ::continue::
+  end
+  if not successful or not sock then return false end
+  log('A', logtag, 'connected? ' .. tostring(successful) .. ', sock = ' .. tostring(sock))
+
+  -- wait for the first message
+  local initMessage = recvMessage()
+  --dump(initMessage)
+  assert(initMessage and initMessage.command == 'welcome')
+  sourceBasePath = initMessage.sourceBasePath
+
+  -- redirect print
+  originalPrintFunction = _G.print -- Keep the debugger in case it drops.
+  _G.print = printToDebugConsole
+
+  -- start the hooking action
+  sethook(hookRun, 'c')
+
+  --debugLoop()
+
+  log('I', 'vscode-debuggee', 'started successfully')
+  return true
 end
 
 -------------------------------------------------------------------------------
-local sockArray = {}
-function debuggee.start(jsonLib, config)
-	json = jsonLib
-	assert(jsonLib)
+function M.poll()
+  if not sock then
+    --log('E', logtag, 'sock not connected')
+    return
+  end
 
-	config = config or {}
-	local connectTimeout = config.connectTimeout or 5.0
-	local controllerHost = config.controllerHost or 'localhost'
-	local controllerPort = config.controllerPort or 56789
-	onError              = config.onError or defaultOnError
-	local redirectPrint  = config.redirectPrint or false
-	dumpCommunication    = config.dumpCommunication or false
-	ignoreFirstFrameInC  = config.ignoreFirstFrameInC or false
-	if not config.luaStyleLog then
-		valueToString = function(value) return json.encode(value) end
-	end
+  -- Processes commands in the queue.
+  -- Immediately returns when the queue is/became empty.
+  while true do
+    local r, w, e = socket.select(sockArray, nil, 0) -- non blocking
+    if e == 'timeout' then break end
 
-	local breakerType
-	if debug.sethalt then
-		breaker = createHaltBreaker()
-		breakerType = 'halt'
-	else
-		breaker = createPureBreaker()
-		breakerType = 'pure'
-	end
+    local msg = recvMessage()
+    if not msg then break end
+    debugComm(' < ' .. dumps(msg), 'stderr')
 
-	local err
-	sock, err = socket.tcp()
-	if not sock then error(err) end
-	sockArray = { sock }
-	if sock.settimeout then sock:settimeout(connectTimeout) end
-	local res, err = sock:connect(controllerHost, tostring(controllerPort))
-	if not res then
-		sock:close()
-		sock = nil
-		return false, breakerType
-	end
+    if msg.command == 'pause' then
+      M.enterDebugLoop(1)
+      return
+    end
 
-	if sock.settimeout then sock:settimeout() end
-	sock:setoption('tcp-nodelay', true)
-
-	local initMessage = recvMessage()
-	assert(initMessage and initMessage.command == 'welcome')
-	sourceBasePath = initMessage.sourceBasePath
-	directorySeperator = initMessage.directorySeperator
-
-	if redirectPrint then
-		redirectedPrintFunction = _G.print -- 디버거가 떨어질때를 대비해서 보관한다
-		_G.print = function(...)
-			local t = { n = select("#", ...), ... }
-			for i = 1, #t do
-				t[i] = tostring(t[i])
-			end
-			sendEvent(
-				'output',
-				{
-					category = 'stdout',
-					output = table.concat(t, '\t') .. '\n' -- Same as default "print" output end new line.
-				})
-		end
-	end
-
-	debugLoop()
-	return true, breakerType
+    local fct = handlers[msg.command]
+    if fct ~= nil then
+      local rv = fct(msg)
+      -- Ignores rv, because this loop never blocks except explicit pause command.
+    else
+      log('E', logtag, 'POLL-UNKNOWN DEBUG COMMAND: ' .. dumps(msg.command))
+    end
+  end
 end
 
--------------------------------------------------------------------------------
-function debuggee.poll()
-	if not sock then return end
-
-	-- Processes commands in the queue.
-	-- Immediately returns when the queue is/became empty.
-	while true do
-		local r, w, e = socket.select(sockArray, nil, 0)
-		if e == 'timeout' then break end
-
-		local msg = recvMessage()
-		if msg then
-			if dumpCommunication then
-				logToDebugConsole('[POLL-RECEIVED] ' .. valueToString(msg), 'stderr')
-			end
-
-			if msg.command == 'pause' then
-				debuggee.enterDebugLoop(1)
-				return
-			end
-
-			local fn = handlers[msg.command]
-			if fn then
-				local rv = fn(msg)
-				-- Ignores rv, because this loop never blocks except explicit pause command.
-			else
-				--print('POLL-UNKNOWN DEBUG COMMAND: ' .. tostring(msg.command))
-			end
-		else
-			break
-		end
-	end
-end
-
--------------------------------------------------------------------------------
+-- 'thread: 011DD5B0'
+--  12345678^
 local function getCoroutineId(c)
-	-- 'thread: 011DD5B0'
-	--  12345678^
-	local threadIdHex = string.sub(tostring(c), 9)
-	return tonumber(threadIdHex, 16)
+  return tonumber(string.sub(tostring(c), 9), 16)
+end
+
+function M.addCoroutine(c)
+  local cid = getCoroutineId(c)
+  coroutineSet[cid] = c
+ -- sethook(c, hookfunc, 'l')
 end
 
 -------------------------------------------------------------------------------
-function debuggee.addCoroutine(c)
-	local cid = getCoroutineId(c)
-	coroutineSet[cid] = c
-	breaker.coroutineAdded(c)
-end
-
--------------------------------------------------------------------------------
-local function sendSuccess(req, body)
-	sendMessage({
-		command = req.command,
-		success = true,
-		request_seq = req.seq,
-		type = "response",
-		body = body
-	})
-end
-
--------------------------------------------------------------------------------
-local function sendFailure(req, msg)
-	sendMessage({
-		command = req.command,
-		success = false,
-		request_seq = req.seq,
-		type = "response",
-		message = msg
-	})
-end
-
--------------------------------------------------------------------------------
-sendEvent = function(eventName, body)
-	sendMessage({
-		event = eventName,
-		type = "event",
-		body = body
-	})
-end
-
--------------------------------------------------------------------------------
-local function currentThreadId()
---[[
-	local threadId = 0
-	if coroutine.running() then
-	end
-	return threadId
-]]
-	return 0
+local function getCurrentThreadId()
+  local prefix = instanceName .. '.'
+  local c = coroutine.running()
+  if c then
+    return prefix .. getCoroutineId(c)
+  end
+  return prefix .. 'main'
 end
 
 -------------------------------------------------------------------------------
 local function startDebugLoop()
-	sendEvent(
-		'stopped',
-		{
-			reason = 'breakpoint',
-			threadId = currentThreadId(),
-			allThreadsStopped = true
-		})
+  sendEvent('stopped', {
+      reason = 'breakpoint',
+      threadId = getCurrentThreadId(),
+    })
 
-	local status, err = pcall(debugLoop)
-	if not status then
-		onError(err)
-	end
+  local status, err = pcall(debugLoop)
+  if not status then
+    log('E', logtag, 'Error: ' .. tostring(err))
+  end
 end
 
 -------------------------------------------------------------------------------
 _G.__halt__ = function()
-	baseDepth = breaker.stackOffset.halt
-	startDebugLoop()
+  lastHaltInfo = debug.getinfo(3, 'Sl')
+  startDebugLoop()
 end
 
 -------------------------------------------------------------------------------
-function debuggee.enterDebugLoop(depthOrCo, what)
-	if sock == nil then
-		return false
-	end
+function M.enterDebugLoop(depthOrCo, what)
+  if sock == nil then return false end
 
-	if what then
-		sendEvent(
-			'output',
-			{
-				category = 'stderr',
-				output = what,
-			})
-	end
+  debugTargetCo = nil
 
-	if type(depthOrCo) == 'thread' then
-		baseDepth = 0
-		debugTargetCo = depthOrCo
-	elseif type(depthOrCo) == 'table' then
-		baseDepth = (depthOrCo.depth or 0)
-		debugTargetCo = depthOrCo.co
-	else
-		baseDepth = (depthOrCo or 0) + breaker.stackOffset.enterDebugLoop
-		debugTargetCo = nil
-	end
-	startDebugLoop()
-	return true
+  startDebugLoop()
+  return true
 end
 
 -------------------------------------------------------------------------------
--- ★★★ https://github.com/Microsoft/vscode/blob/master/src/vs/workbench/parts/debug/common/debugProtocol.d.ts
+-- https://github.com/Microsoft/vscode/blob/master/src/vs/workbench/parts/debug/common/debugProtocol.d.ts
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
 function handlers.setBreakpoints(req)
-	local bpLines = {}
-	for _, bp in ipairs(req.arguments.breakpoints) do
-		bpLines[#bpLines + 1] = bp.line
-	end
+  local bpLines = {}
+  for _, bp in ipairs(req.arguments.breakpoints) do
+    bpLines[#bpLines + 1] = bp.line
+  end
 
-	local verifiedLines = breaker.setBreakpoints(
-		req.arguments.source.path,
-		bpLines)
+  local path = vsCodePathToLocalPath(req.arguments.source.path)
+  if not path then return end
 
-	local breakpoints = {}
-	for i, ln in ipairs(bpLines) do
-		breakpoints[i] = {
-			verified = (verifiedLines[ln] ~= nil),
-			line = verifiedLines[ln]
-		}
-	end
+  --print('>> setBreakpoints >> ' .. dumps(path) .. ' / ' .. dumps(bpLines))
 
-	sendSuccess(req, {
-		breakpoints = breakpoints
-	})
+  -- convert line array to map for easier lookup
+  local lineMap = {}
+  local lineMapCopy = {}
+  local verifiedLines = {}
+  for _, ln in ipairs(bpLines) do
+    lineMap[ln] = 0 -- Normal breakType = 0
+    lineMapCopy[ln] = 0
+    verifiedLines[ln] = ln
+  end
+  -- associate with the file map
+  breakFileMap[path] = lineMap
+  normalBreakPoints[path] = lineMapCopy
+  --dump(breakFileMap)
+
+  -- send result 'all ok' back
+  local breakpoints = {}
+  for i, ln in ipairs(bpLines) do
+    breakpoints[i] = {
+      verified = (verifiedLines[ln] ~= nil),
+      line = verifiedLines[ln]
+    }
+  end
+
+  sendSuccess(req, {
+    breakpoints = breakpoints
+  })
 end
 
 -------------------------------------------------------------------------------
 function handlers.configurationDone(req)
-	sendSuccess(req, {})
-	return 'CONTINUE'
+  sendSuccess(req, {})
+  return 'CONTINUE'
 end
 
 -------------------------------------------------------------------------------
 function handlers.threads(req)
-	local c = coroutine.running()
-
-	local mainThread = {
-		id = currentThreadId(),
-		name = (c and tostring(c)) or "main"
-	}
-
-	sendSuccess(req, {
-		threads = { mainThread }
-	})
+  local c = coroutine.running()
+  local mainThread = {
+    id = getCurrentThreadId(),
+    name = getCurrentThreadId(),
+  }
+  sendSuccess(req, {
+    threads = { mainThread }
+  })
 end
 
 -------------------------------------------------------------------------------
 function handlers.stackTrace(req)
-	assert(req.arguments.threadId == 0)
+  --assert(req.arguments.threadId == 'main')
 
-	local stackFrames = {}
-	local firstFrame = (req.arguments.startFrame or 0) + baseDepth
-	local lastFrame = (req.arguments.levels and (req.arguments.levels ~= 0))
-		and (firstFrame + req.arguments.levels - 1)
-		or (9999)
+  local stackFrames = {}
+  local firstFrame = (req.arguments.startFrame or 0) + 6 -- 6 is the magic value for this to work
+  local lastFrame = (req.arguments.levels and (req.arguments.levels ~= 0))
+    and (firstFrame + req.arguments.levels - 1)
+    or (9999)
 
-	-- if firstframe function of stack is C function, ignore it.
-	if ignoreFirstFrameInC then
-		local info = debug_getinfo(firstFrame, 'lnS')
-		if info and info.what == "C" then
-			firstFrame = firstFrame + 1
-		end
-	end
+  -- if firstframe function of stack is C function, ignore it.
+  if ignoreFirstFrameInC then
+    local info = debug_getinfo(firstFrame, 'lnS')
+    if info and info.what == "C" then
+      firstFrame = firstFrame + 1
+    end
+  end
 
-	for i = firstFrame, lastFrame do
-		local info = debug_getinfo(i, 'lnS')
-		if (info == nil) then break end
-		--print(json.encode(info))
+  for i = firstFrame, lastFrame do
+    local info = debug_getinfo(i, 'lnS')
+    if (info == nil) then break end
+    --print(json.encode(info))
 
-		local src = info.source
-		if string.sub(src, 1, 1) == '@' then
-			src = string.sub(src, 2) -- 앞의 '@' 떼어내기
-		end
+    local src = info.source
+    if string.sub(src, 1, 1) == '@' then
+      src = string.sub(src, 2) -- Removing the preceding '@'
+    end
 
-		local name
-		if info.name then
-			name = info.name .. ' (' .. (info.namewhat or '?') .. ')'
-		else
-			name = '?'
-		end
+    local name
+    if info.name then
+      name = info.name .. ' (' .. (info.namewhat or '?') .. ')'
+    else
+      name = '?'
+    end
 
-		local sframe = {
-			name = name,
-			source = {
-				name = nil,
-				path = Path.toAbsolute(sourceBasePath, src)
-			},
-			column = 1,
-			line = info.currentline or 1,
-			id = i,
-		}
-		stackFrames[#stackFrames + 1] = sframe
-	end
+    local sframe = {
+      name = name,
+      source = {
+        name = nil,
+        path = sourceBasePath .. '\\' .. src:gsub("/", "\\")
+      },
+      column = 1,
+      line = info.currentline or 1,
+      id = i,
+    }
+    stackFrames[#stackFrames + 1] = sframe
+  end
 
-	sendSuccess(req, {
-		stackFrames = stackFrames
-	})
+  sendSuccess(req, {
+    stackFrames = stackFrames
+  })
 end
 
 -------------------------------------------------------------------------------
 local scopeTypes = {
-	Locals = 1,
-	Upvalues = 2,
-	Globals = 3,
+  Locals = 1,
+  Upvalues = 2,
+  Globals = 3,
 }
 function handlers.scopes(req)
-	local depth = req.arguments.frameId
+  local depth = req.arguments.frameId
 
-	local scopes = {}
-	local function addScope(name)
-		scopes[#scopes + 1] = {
-			name = name,
-			expensive = false,
-			variablesReference = depth * 1000000 + scopeTypes[name]
-		}
-	end
+  local scopes = {}
+  local function addScope(name)
+    scopes[#scopes + 1] = {
+      name = name,
+      expensive = false,
+      variablesReference = depth * 1000000 + scopeTypes[name]
+    }
+  end
 
-	addScope('Locals')
-	addScope('Upvalues')
-	addScope('Globals')
+  addScope('Locals')
+  addScope('Upvalues')
+  addScope('Globals')
 
-	sendSuccess(req, {
-		scopes = scopes
-	})
+  sendSuccess(req, {
+    scopes = scopes
+  })
 end
 
 -------------------------------------------------------------------------------
 local function registerVar(varNameCount, name_, value, noQuote)
-	local ty = type(value)
-	local name
-	if type(name_) == 'number' then
-		name = '[' .. name_ .. ']'
-	else
-		name = tostring(name_)
-	end
-	if varNameCount[name] then
-		varNameCount[name] = varNameCount[name] + 1
-		name = name .. ' (' .. varNameCount[name] .. ')'
-	else
-		varNameCount[name] = 1
-	end
+  local ty = type(value)
+  local name
+  if type(name_) == 'number' then
+    name = '[' .. name_ .. ']'
+  else
+    name = tostring(name_)
+  end
+  if varNameCount[name] then
+    varNameCount[name] = varNameCount[name] + 1
+    name = name .. ' (' .. varNameCount[name] .. ')'
+  else
+    varNameCount[name] = 1
+  end
 
-	local item = {
-		name = name,
-		type = ty
-	}
+  local item = {
+    name = name,
+    type = ty
+  }
 
-	if (ty == 'string' and (not noQuote)) then
-		item.value = '"' .. value .. '"'
-	else
-		item.value = tostring(value)
-	end
+  if (ty == 'string' and (not noQuote)) then
+    item.value = '"' .. value .. '"'
+  else
+    item.value = tostring(value)
+  end
 
-	if (ty == 'table') or
-		(ty == 'function') then
-		storedVariables[nextVarRef] = value
-		item.variablesReference = nextVarRef
-		nextVarRef = nextVarRef + 1
-	else
-		item.variablesReference = -1
-	end
+  if (ty == 'table') or
+    (ty == 'function') then
+    storedVariables[nextVarRef] = value
+    item.variablesReference = nextVarRef
+    nextVarRef = nextVarRef + 1
+  else
+    item.variablesReference = -1
+  end
 
-	return item
+  return item
 end
 
 -------------------------------------------------------------------------------
 function handlers.variables(req)
-	local varRef = req.arguments.variablesReference
-	local variables = {}
-	local varNameCount = {}
-	local function addVar(name, value, noQuote)
-		variables[#variables + 1] = registerVar(varNameCount, name, value, noQuote)
-	end
+  local varRef = req.arguments.variablesReference
+  local variables = {}
+  local varNameCount = {}
+  local function addVar(name, value, noQuote)
+    variables[#variables + 1] = registerVar(varNameCount, name, value, noQuote)
+  end
 
-	if (varRef >= 1000000) then
-		-- Scope.
-		local depth = math.floor(varRef / 1000000)
-		local scopeType = varRef % 1000000
-		if scopeType == scopeTypes.Locals then
-			for i = 1, 9999 do
-				local name, value = debug_getlocal(depth, i)
-				if name == nil then break end
-				addVar(name, value, nil)
-			end
-		elseif scopeType == scopeTypes.Upvalues then
-			local info = debug_getinfo(depth, 'f')
-			if info and info.func then
-				for i = 1, 9999 do
-					local name, value = debug.getupvalue(info.func, i)
-					if name == nil then break end
-					addVar(name, value, nil)
-				end
-			end
-		elseif scopeType == scopeTypes.Globals then
-			for name, value in pairs(_G) do
-				addVar(name, value)
-			end
-			table.sort(variables, function(a, b) return a.name < b.name end)
-		end
-	else
-		-- Expansion.
-		local var = storedVariables[varRef]
-		if type(var) == 'table' then
-			for k, v in pairs(var) do
-				addVar(k, v)
-			end
-			table.sort(variables, function(a, b)
-				local aNum, aMatched = string.gsub(a.name, '^%[(%d+)%]$', '%1')
-				local bNum, bMatched = string.gsub(b.name, '^%[(%d+)%]$', '%1')
+  if (varRef >= 1000000) then
+    -- Scope.
+    local depth = math.floor(varRef / 1000000)
+    local scopeType = varRef % 1000000
+    if scopeType == scopeTypes.Locals then
+      for i = 1, 9999 do
+        local name, value = debug_getlocal(depth, i)
+        if name == nil then break end
+        addVar(name, value, nil)
+      end
+    elseif scopeType == scopeTypes.Upvalues then
+      local info = debug_getinfo(depth, 'f')
+      if info and info.func then
+        for i = 1, 9999 do
+          local name, value = debug.getupvalue(info.func, i)
+          if name == nil then break end
+          addVar(name, value, nil)
+        end
+      end
+    elseif scopeType == scopeTypes.Globals then
+      for name, value in pairs(_G) do
+        addVar(name, value)
+      end
+      table.sort(variables, function(a, b) return a.name < b.name end)
+    end
+  else
+    -- Expansion.
+    local var = storedVariables[varRef]
+    if type(var) == 'table' then
+      for k, v in pairs(var) do
+        addVar(k, v)
+      end
+      table.sort(variables, function(a, b)
+        local aNum, aMatched = string.gsub(a.name, '^%[(%d+)%]$', '%1')
+        local bNum, bMatched = string.gsub(b.name, '^%[(%d+)%]$', '%1')
 
-				if (aMatched == 1) and (bMatched == 1) then
-					-- both are numbers. compare numerically.
-					return tonumber(aNum) < tonumber(bNum)
-				elseif aMatched == bMatched then
-					-- both are strings. compare alphabetically.
-					return a.name < b.name
-				else
-					-- string comes first.
-					return aMatched < bMatched
-				end
-			end)
-		elseif type(var) == 'function' then
-			local info = debug.getinfo(var, 'S')
-			addVar('(source)', tostring(info.short_src), true)
-			addVar('(line)', info.linedefined)
+        if (aMatched == 1) and (bMatched == 1) then
+          -- both are numbers. compare numerically.
+          return tonumber(aNum) < tonumber(bNum)
+        elseif aMatched == bMatched then
+          -- both are strings. compare alphabetically.
+          return a.name < b.name
+        else
+          -- string comes first.
+          return aMatched < bMatched
+        end
+      end)
+    elseif type(var) == 'function' then
+      local info = debug.getinfo(var, 'S')
+      addVar('(source)', tostring(info.short_src), true)
+      addVar('(line)', info.linedefined)
 
-			for i = 1, 9999 do
-				local name, value = debug.getupvalue(var, i)
-				if name == nil then break end
-				addVar(name, value)
-			end
-		end
+      for i = 1, 9999 do
+        local name, value = debug.getupvalue(var, i)
+        if name == nil then break end
+        addVar(name, value)
+      end
+    end
 
-		local mt = getmetatable(var)
-		if mt then
-			addVar("(metatable)", mt)
-		end
-	end
+    local mt = getmetatable(var)
+    if mt then
+      addVar("(metatable)", mt)
+    end
+  end
 
-	sendSuccess(req, {
-		variables = variables
-	})
+  sendSuccess(req, {
+    variables = variables
+  })
 end
 
--------------------------------------------------------------------------------
 function handlers.continue(req)
-	sendSuccess(req, {})
-	return 'CONTINUE'
+  sendSuccess(req, {})
+  sethook(hookAccurate, 'l')
+  return 'CONTINUE'
 end
 
--------------------------------------------------------------------------------
-local function stackHeight()
-	for i = 1, 9999999 do
-		if (debug_getinfo(i, '') == nil) then
-			return i
-		end
-	end
-end
-
--------------------------------------------------------------------------------
-local stepTargetHeight = nil
-local function step()
-	if (stepTargetHeight == nil) or (stackHeight() <= stepTargetHeight) then
-		breaker.setLineBreak(nil)
-		baseDepth = breaker.stackOffset.stepDebugLoop
-		startDebugLoop()
-	end
-end
-
--------------------------------------------------------------------------------
+-- aka: stepOver
 function handlers.next(req)
-	stepTargetHeight = stackHeight() - breaker.stackOffset.step
-	breaker.setLineBreak(step)
-	sendSuccess(req, {})
-	return 'CONTINUE'
+  sendSuccess(req, {})
+  local currentline = lastHaltInfo.currentline
+  if currentline >= lastHaltInfo.lastlinedefined then
+    sethook(hookStep, 'l')
+  else
+    local source = lastHaltInfo.source
+    breakFileMap[source][currentline] = 2 -- stepOut breakType
+    sethook(hookAccurate, 'l')
+  end
+  return 'CONTINUE'
 end
 
--------------------------------------------------------------------------------
 function handlers.stepIn(req)
-	stepTargetHeight = nil
-	breaker.setLineBreak(step)
-	sendSuccess(req, {})
-	return 'CONTINUE'
+  --print("handlers. >> " .. dumps(req))
+  sendSuccess(req, {})
+  sethook(hookStep, 'l')
+  return 'CONTINUE'
 end
 
--------------------------------------------------------------------------------
 function handlers.stepOut(req)
-	stepTargetHeight = stackHeight() - (breaker.stackOffset.step + 1)
-	breaker.setLineBreak(step)
-	sendSuccess(req, {})
-	return 'CONTINUE'
+  sendSuccess(req, {})
+  local source = lastHaltInfo.source
+  breakFileMap[source][lastHaltInfo.lastlinedefined] = 1 -- temporal breakType
+  sethook(hookAccurate, 'l')
+  return 'CONTINUE'
 end
 
--------------------------------------------------------------------------------
 function handlers.evaluate(req)
-	-- 실행할 소스 코드 준비
-	local sourceCode = req.arguments.expression
-	if string.sub(sourceCode, 1, 1) == '!' then
-		sourceCode = string.sub(sourceCode, 2)
-	else
-		sourceCode = 'return (' .. sourceCode .. ')'
-	end
+  --print("handlers.evaluate >> " .. dumps(req))
+  -- Prepare source code for execution
+  local sourceCode = req.arguments.expression
+  if string.sub(sourceCode, 1, 1) == '!' then
+    sourceCode = string.sub(sourceCode, 2)
+  else
+    sourceCode = 'return (' .. sourceCode .. ')'
+  end
 
-	-- 환경 준비.
-	-- 뭘 요구할지 모르니까 로컬, 업밸류, 글로벌을 죄다 복사해둔다.
-	-- 우선순위는 글로벌-업밸류-로컬 순서니까
-	-- 그 반대로 갖다놓아서 나중 것이 앞의 것을 덮어쓰게 한다. 
-	local depth = req.arguments.frameId
-	local tempG = {}
-	local declared = {}
-	local function set(k, v)
-		tempG[k] = v
-		declared[k] = true
-	end
+  -- Environment preparation.
+  -- I do not know what to ask, so I copy local, upvalue, global.
+  -- Priority is global - up value. - Local order.
+  -- Put it on the other side and let the latter overwrite the previous one.
+  local depth = req.arguments.frameId
+  local tempG = {}
+  local declared = {}
+  local function set(k, v)
+    tempG[k] = v
+    declared[k] = true
+  end
 
-	for name, value in pairs(_G) do
-		set(name, value)
-	end
+  for name, value in pairs(_G) do
+    set(name, value)
+  end
 
-	if depth then
-		local info = debug_getinfo(depth, 'f')
-		if info and info.func then
-			for i = 1, 9999 do
-				local name, value = debug.getupvalue(info.func, i)
-				if name == nil then break end
-				set(name, value)
-			end
-		end
+  if depth then
+    local info = debug_getinfo(depth, 'f')
+    if info and info.func then
+      for i = 1, 9999 do
+        local name, value = debug.getupvalue(info.func, i)
+        if name == nil then break end
+        set(name, value)
+      end
+    end
 
-		for i = 1, 9999 do
-			local name, value = debug_getlocal(depth, i)
-			if name == nil then break end
-			set(name, value)
-		end
-	else
-		-- VSCode가 depth를 안 보낼 수도 있다.
-		-- 특정 스택 프레임을 선택하지 않은, 전역 이름만 조회하는 경우이다.
-	end
-	local mt = {
-		__newindex = function() error('assignment not allowed', 2) end,
-		__index = function(t, k) if not declared[k] then error('not declared', 2) end end
-	}
-	setmetatable(tempG, mt)
+    for i = 1, 9999 do
+      local name, value = debug_getlocal(depth, i)
+      if name == nil then break end
+      set(name, value)
+    end
+  else
+    -- VSCode may not report depth.
+    -- This is the case when only a global name is searched without selecting a specific stack frame.
+  end
+  local mt = {
+    __newindex = function() log('E', logtag, 'assignment not allowed', 2) end,
+    --__index = function(t, k) if not declared[k] then log('E', logtag, 'not declared: ' .. tostring(k), 2) end end
+  }
+  setmetatable(tempG, mt)
 
-	-- 파싱
-	-- loadstring for Lua 5.1
-	-- load for Lua 5.2 and 5.3(supports the private environment's load function)
-	local fn, err = (loadstring or load)(sourceCode, 'X', nil, tempG)
-	if fn == nil then
-		sendFailure(req, string.gsub(err, '^%[string %"X%"%]%:%d+%: ', ''))
-		return
-	end
+  -- farthing
+  -- loadstring for Lua 5.1
+  -- load for Lua 5.2 and 5.3(supports the private environment's load function)
+  local fn, err = (loadstring or load)(sourceCode, 'X', nil, tempG)
+  if fn == nil then
+    sendFailure(req, string.gsub(err, '^%[string %"X%"%]%:%d+%: ', ''))
+    return
+  end
 
-	-- 실행하고 결과 송신
-	if setfenv ~= nil then
-		-- Only for Lua 5.1
-		setfenv(fn, tempG)
-	end
+  -- Execute and send result
+  if setfenv ~= nil then
+    -- Only for Lua 5.1
+    setfenv(fn, tempG)
+  end
 
-	local success, aux = pcall(fn)
-	if not success then
-		aux = aux or '' -- Execution of 'error()' returns nil as aux
-		sendFailure(req, string.gsub(aux, '^%[string %"X%"%]%:%d+%: ', ''))
-		return
-	end
+  local success, aux = pcall(fn)
+  if not success then
+    aux = aux or '' -- Execution of 'error()' returns nil as aux
+    sendFailure(req, string.gsub(aux, '^%[string %"X%"%]%:%d+%: ', ''))
+    return
+  end
 
-	local varNameCount = {}
-	local item = registerVar(varNameCount, '', aux)
+  local varNameCount = {}
+  local item = registerVar(varNameCount, '', aux)
 
-	sendSuccess(req, {
-		result = item.value,
-		type = item.type,
-		variablesReference = item.variablesReference
-	})
+  sendSuccess(req, {
+    result = item.value,
+    type = item.type,
+    variablesReference = item.variablesReference
+  })
 end
 
 -------------------------------------------------------------------------------
-return debuggee
+return M

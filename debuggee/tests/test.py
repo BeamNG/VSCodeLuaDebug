@@ -5,6 +5,7 @@ import zipfile
 from subprocess import Popen
 import os
 import shutil
+from dummyVSCodeServer import *
 
 versions_totest = ['LuaJIT-2.0.0']
 
@@ -42,20 +43,20 @@ def compileLuaSocket(folder, arch):
   return p.returncode == 0
 
 def test(folder):
-  cmd = r'''luajit.exe -e "package.path = '..\\..\\..\\?.lua;?.lua' ; require('vscode-debuggee').start() ; dofile('..\\..\\..\\bench\\scimark.lua')"'''
+  cmd = r'''luajit.exe -e "package.path = '..\\..\\..\\?.lua;?.lua' ; require('vscode-debuggee').start() ; dofile('..\\..\\bench\\scimark.lua')"'''
   p = Popen(cmd, shell=True, cwd=folder)
   stdout, stderr = p.communicate()
   return p.returncode == 0
 
 
 def main():
-
+  startVSCodeDummyServer()
 
   for v in versions_totest:
     #downloadLuaJIT(v + '.zip')
     #unzip(v + '.zip')
     #compile(v + '\\src', 'msvcbuild.bat', 'x86')
-    compileLuaSocket(v + '/src', 'x86')
+    #compileLuaSocket(v + '/src', 'x86')
     test(v + '/src')
     #os.remove(v + '.zip')
     #shutil.rmtree(v)
