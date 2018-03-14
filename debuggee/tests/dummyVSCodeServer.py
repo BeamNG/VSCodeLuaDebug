@@ -1,11 +1,10 @@
 #!/usr/bin/python3
 
 # this file implements a dummy vscode debugger host
-# the purpose is to be able to profile the debugger
+# the purpose is to be able to profile the debugger client(debugee)
+# without having vscode running
 
 import socket
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import time
 import threading
 import json
 
@@ -21,7 +20,7 @@ def socketReadline(sock):
 # protocol is '#<bodysize>\n<body>
 def sendPacket(conn, data):
   body = json.dumps(data)
-  print('S|>|' + body)
+  #print('S|>|' + body)
   packet = '#' + str(len(body)) + "\n" + body
   conn.send(packet.encode())
 
@@ -34,11 +33,11 @@ def receivePacket(conn):
   body = conn.recv(bodySize).decode()
   if not body:
     return None
-  print('S|<|' + body)
+  #print('S|<|' + body)
   return json.loads(body)
 
 def connectionHandler(conn, addr):
-  print('S|new client connected:', addr)
+  #print('S|new client connected:', addr)
   sendPacket(conn, {'command': 'welcome', 'sourceBasePath': '.'})
   while True:
       data = receivePacket(conn)
@@ -46,7 +45,7 @@ def connectionHandler(conn, addr):
       #print("data: " + str(data))
       if not data:
         break
-  print('S|client gone:', addr)
+  #print('S|client gone:', addr)
 
 # accept any clients and spawn a new thread for them to handle their protocol
 def dummyVSCodeServerMain(listenAddress, listenPort):
