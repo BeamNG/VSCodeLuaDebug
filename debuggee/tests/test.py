@@ -7,13 +7,11 @@ import os
 import shutil
 from dummyVSCodeServer import *
 
-versions_totest = ['LuaJIT-2.0.0']
+versions_totest = ['LuaJIT-2.1.0-beta3', 'LuaJIT-2.0.0']
 
 vcvarsall = r'C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\VC\Auxiliary\Build\vcvarsall.bat'
 archs = ['x86', 'x64']
 msvc_arch_fix = { 'x86': 'win32' }
-
-luasocket_URL = 'https://github.com/diegonehab/luasocket/archive/master.zip'
 
 def downloadURL(url, fn):
   with urllib.request.urlopen(url) as response, open(fn, 'wb') as out_file:
@@ -52,14 +50,17 @@ def test(folder):
 def main():
   startVSCodeDummyServer()
 
-  for v in versions_totest:
-    #downloadLuaJIT(v + '.zip')
-    #unzip(v + '.zip')
-    #compile(v + '\\src', 'msvcbuild.bat', 'x86')
-    #compileLuaSocket(v + '/src', 'x86')
-    test(v + '/src')
-    #os.remove(v + '.zip')
-    #shutil.rmtree(v)
+  for arch in archs:
+    for v in versions_totest:
+      downloadLuaJIT(v + '.zip')
+      unzip(v + '.zip')
+      compile(v + '\\src', 'msvcbuild.bat', 'x86')
+      compileLuaSocket(v + '/src', 'x86')
+      test(v + '/src')
+      os.remove(v + '.zip')
+      shutil.rmtree(v)
+      break
+    break
 
 if __name__ == "__main__":
   main()
