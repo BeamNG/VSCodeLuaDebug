@@ -28,3 +28,7 @@ require('vscode-debuggee').start()
 local b = testIt()
 
 print('Debugger is ' .. (b/a) .. ' x slower (' .. tostring(a) .. ' vs ' .. tostring(b) .. ')')
+
+file = io.open ('..\\..\\benchresults.csv', 'a')
+file:write(tostring(a) .. ', ' .. tostring(b) .. "\n")
+file:close()
