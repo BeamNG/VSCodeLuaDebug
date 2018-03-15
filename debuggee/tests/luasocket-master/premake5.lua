@@ -6,7 +6,7 @@ newoption {
 
 solution "luasocket"
   configurations { "Debug", "Release", "Relwithdebinfo" }
-  location("build/")
+  location("premake_build/")
   platforms { 'x86', 'x64' }
   targetname('core')
   targetdir(_OPTIONS['luapath'] .. '/socket/')
@@ -25,7 +25,8 @@ project "luasocket"
   }
   includedirs  {
     'src',
-    _OPTIONS['luapath']
+    _OPTIONS['luapath'],
+    _OPTIONS['luapath'] .. '/../include/' -- hack for old lua versions
   }
   files {
     "src/**.h",
