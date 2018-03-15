@@ -451,24 +451,22 @@ function M.start(_instanceName, config)
       log('E', logtag, 'error creating socket: ' .. tostring(err))
       sock = nil
       socket.sleep(1)
-      goto continue
-    end
-    sockArray = { sock }
-    sock:settimeout(connectTimeout) -- set the timeout for connecting only
-    local res, err = sock:connect(controllerHost, tostring(controllerPort))
-    if not res then
-      log('E', logtag, 'error connecting socket: ' .. tostring(err))
-      sock:close()
-      sock = nil
-      socket.sleep(1)
-      goto continue
     else
-      sock:settimeout() -- block indefinity ater being connected
-      sock:setoption('tcp-nodelay', true) -- Setting this option to true disables the Nagle's algorithm for the connection.
-      successful = true
-      break
+      sockArray = { sock }
+      sock:settimeout(connectTimeout) -- set the timeout for connecting only
+      local res, err = sock:connect(controllerHost, tostring(controllerPort))
+      if not res then
+        log('E', logtag, 'error connecting socket: ' .. tostring(err))
+        sock:close()
+        sock = nil
+        socket.sleep(1)
+      else
+        sock:settimeout() -- block indefinity ater being connected
+        sock:setoption('tcp-nodelay', true) -- Setting this option to true disables the Nagle's algorithm for the connection.
+        successful = true
+        break
+      end
     end
-    ::continue::
   end
   if not successful or not sock then return false end
   log('A', logtag, 'connected? ' .. tostring(successful) .. ', sock = ' .. tostring(sock))
