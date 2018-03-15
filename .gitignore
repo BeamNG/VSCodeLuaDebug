@@ -13,6 +13,8 @@
 Extension/*.dll
 Extension/*.exe
 
+publish
+
 *.vsix
 *.zip
 *.VC.db
