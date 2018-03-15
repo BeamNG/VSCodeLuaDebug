@@ -441,45 +441,49 @@ function M.start(_instanceName, config)
   -- debug comm:
   --debugComm = print -- logToDebugConsole
 
-  -- connect to vscode
-  local successful = false
-  for i = 1, connectRetries do
-    log('A', logtag, 'connecting ... (' .. tostring(i) .. ')')
-    local err = nil
-    sock, err = socket.tcp()
-    if not sock then
-      log('E', logtag, 'error creating socket: ' .. tostring(err))
-      sock = nil
-      socket.sleep(1)
-    else
-      sockArray = { sock }
-      sock:settimeout(connectTimeout) -- set the timeout for connecting only
-      local res, err = sock:connect(controllerHost, tostring(controllerPort))
-      if not res then
-        log('E', logtag, 'error connecting socket: ' .. tostring(err))
-        sock:close()
+  if socket and socket.tcp then
+    -- connect to vscode
+    local successful = false
+    for i = 1, connectRetries do
+      log('A', logtag, 'connecting ... (' .. tostring(i) .. ')')
+      local err = nil
+      sock, err = socket.tcp()
+      if not sock then
+        log('E', logtag, 'error creating socket: ' .. tostring(err))
         sock = nil
         socket.sleep(1)
       else
-        sock:settimeout() -- block indefinity ater being connected
-        sock:setoption('tcp-nodelay', true) -- Setting this option to true disables the Nagle's algorithm for the connection.
-        successful = true
-        break
+        sockArray = { sock }
+        sock:settimeout(connectTimeout) -- set the timeout for connecting only
+        local res, err = sock:connect(controllerHost, tostring(controllerPort))
+        if not res then
+          log('E', logtag, 'error connecting socket: ' .. tostring(err))
+          sock:close()
+          sock = nil
+          socket.sleep(1)
+        else
+          sock:settimeout() -- block indefinity ater being connected
+          sock:setoption('tcp-nodelay', true) -- Setting this option to true disables the Nagle's algorithm for the connection.
+          successful = true
+          break
+        end
       end
     end
+    if not successful or not sock then return false end
+    log('A', logtag, 'connected? ' .. tostring(successful) .. ', sock = ' .. tostring(sock))
+
+    -- wait for the first message
+    local initMessage = recvMessage()
+    --dump(initMessage)
+    assert(initMessage and initMessage.command == 'welcome')
+    sourceBasePath = initMessage.sourceBasePath
+
+    -- redirect print
+    originalPrintFunction = _G.print -- Keep the debugger in case it drops.
+    _G.print = printToDebugConsole
+  else
+    log('E', logtag, 'socket not available, mode only useful for performance testing of the hooking code')
   end
-  if not successful or not sock then return false end
-  log('A', logtag, 'connected? ' .. tostring(successful) .. ', sock = ' .. tostring(sock))
-
-  -- wait for the first message
-  local initMessage = recvMessage()
-  --dump(initMessage)
-  assert(initMessage and initMessage.command == 'welcome')
-  sourceBasePath = initMessage.sourceBasePath
-
-  -- redirect print
-  originalPrintFunction = _G.print -- Keep the debugger in case it drops.
-  _G.print = printToDebugConsole
 
   -- start the hooking action
   sethook(hookRun, 'c')
