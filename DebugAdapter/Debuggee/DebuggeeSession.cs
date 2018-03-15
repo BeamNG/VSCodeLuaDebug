@@ -14,7 +14,7 @@ namespace VSCodeDebug
         NetworkStream networkStream;
         IDebuggeeListener debuggeeListener;
 
-        const bool debuglogProtocol = false;
+        const bool debuglogProtocol = false; // set this to true if you want to read in the logfile what data is exchanged
 
         public DebuggeeSession(IDebuggeeListener debuggeeListener, NetworkStream networkStream) {
             this.debuggeeListener = debuggeeListener;

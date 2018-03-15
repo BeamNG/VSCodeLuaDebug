@@ -1,14 +1,9 @@
-﻿// Original work by:
-/*---------------------------------------------------------------------------------------------
+﻿/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Copyright (c) NEXON Korea Corporation. All rights reserved.
+ *  Copyright (c) BeamNG GmbH. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-
-// Modified by:
-/*---------------------------------------------------------------------------------------------
-*  Copyright (c) NEXON Korea Corporation. All rights reserved.
-*  Licensed under the MIT License. See License.txt in the project root for license information.
-*--------------------------------------------------------------------------------------------*/
 
 using Newtonsoft.Json;
 using System;
@@ -38,6 +33,7 @@ namespace VSCodeDebug
             Program.WaitingUI.SetLabelText("Waiting for commands from Visual Studio Code...");
         }
 
+        // process requests from VSCode
         void ICDPListener.X_FromVSCode(string command, int seq, dynamic args, string reqText) {
             lock (this) {
                 //MessageBox.OK(reqText);
@@ -109,11 +105,10 @@ namespace VSCodeDebug
             toVSCode.SendMessage(response);
         }
 
-        void Disconnect(string command, int seq, dynamic arguments) {
-            if (process != null) {
+        void Disconnect(string command, int seq, dynamic args) {
+            if (args.killProcessOnDisconnect == true && process != null) {
                 try {
-                    // TODO
-                    //process.Kill();
+                    process.Kill();
                 }
                 catch(Exception) {
                     // If it exits normally, it comes in this path.

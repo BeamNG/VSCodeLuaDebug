@@ -37,6 +37,7 @@ namespace VSCodeDebug
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(WaitingUI));
             this.label1 = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
@@ -56,8 +57,11 @@ namespace VSCodeDebug
             // 
             this.ClientSize = new System.Drawing.Size(551, 91);
             this.Controls.Add(this.label1);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
             this.Name = "WaitingUI";
-            this.Text = "LuaJIT Debugger";
+            this.Text = "Lua/LuaJIT Debugger";
             this.ResumeLayout(false);
 
         }
