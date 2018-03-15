@@ -1,10 +1,10 @@
 {
-    "name": "luajit-debug",
-    "displayName": "LuaJIT Debugger",
-    "version": "0.1.0",
+    "name": "lua-debug",
+    "displayName": "Lua/LuaJIT Debugger",
+    "version": "0.1.1",
     "publisher": "BeamNG",
     "icon": "luajit.png",
-    "description": "Visual Studio Code debugger extension for LuaJIT",
+    "description": "Visual Studio Code debugger extension for Lua/LuaJIT",
     "categories": [
         "Debuggers"
     ],
@@ -12,7 +12,7 @@
         "name": "BeamNG"
     },
     "license": "MIT",
-    "private": true,
+    "private": false,
     "scripts": {},
     "engines": {
         "vscode": "^1.0.0"
@@ -27,7 +27,7 @@
         "debuggers": [
             {
                 "type": "lua",
-                "label": "LuaJIT Debugger",
+                "label": "Lua/LuaJIT Debugger",
                 "enableBreakpointsFor": {
                     "languageIds": [
                         "lua"
@@ -80,7 +80,7 @@
                             },
                             "listenPublicly": {
                                 "type": "boolean",
-                                "description": "Set this to false",
+                                "description": "If false, listens on any interface. Otherwise only on localhost.",
                                 "default": false
                             },
                             "listenPort": {
@@ -88,11 +88,15 @@
                                 "description": "Local TCP port to communicate between debug adapter and debuggee",
                                 "default": 56789
                             },
-
                             "encoding": {
                                 "type": "string",
                                 "description": "Encoding of the debuggee. (Example: 'UTF-8', '949')",
                                 "default": "UTF-8"
+                            },
+                            "killProcessOnDisconnect": {
+                                "type": "boolean",
+                                "description": "Determines if the debuggee process should be killed on disconnecting the debugger. Advised to set to false for embedded lua.",
+                                "default": true
                             }
                         }
                     },
@@ -130,6 +134,11 @@
                                 "type": "string",
                                 "description": "Encoding of the debuggee. (Example: 'UTF-8', '949')",
                                 "default": "UTF-8"
+                            },
+                            "killProcessOnDisconnect": {
+                                "type": "boolean",
+                                "description": "Determines if the debuggee process should be killed on disconnecting the debugger. Advised to set to false for embedded lua.",
+                                "default": true
                             }
                         }
                     }
