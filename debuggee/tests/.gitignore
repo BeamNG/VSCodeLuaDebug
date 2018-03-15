@@ -1,0 +1,4 @@
+*.pyc
+LuaJIT-*
+Lua-*
+luasocket-master/build
