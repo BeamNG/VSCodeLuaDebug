@@ -1,4 +1,4 @@
-package.path = '..\\..\\..\\?.lua;?.lua'
+package.path = '..\\..\\..\\?.lua;..\\..\\bench\\?.lua;?.lua'
 
 -- time things ...
 local getTime = function() return 0 end
@@ -7,10 +7,13 @@ if socket and socket.gettime then getTime = socket.gettime end
 
 
 local function testIt()
+  args = '-noffi'
+  package.loaded['scimark'] = nil
+  collectgarbage()
+
   local startTime = getTime()
 
-  args = '-noffi'
-  dofile('..\\..\\bench\\scimark.lua')
+  local s = require('scimark')
 
   local endTime = getTime()
   local diff = (endTime - startTime)
