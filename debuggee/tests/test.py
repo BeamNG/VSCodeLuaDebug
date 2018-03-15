@@ -135,7 +135,7 @@ def test(folder, logFilename):
   if folder.startswith('lua-'):
     exeName = 'lua.exe'
     args = "arg={'-noffi'};"
-  runcmd( exeName + r''' -e "package.path = '..\\..\\..\\?.lua;?.lua' ; require('vscode-debuggee').start() ; ''' + args + r'''dofile('..\\..\\bench\\scimark.lua')"''', folder, logFilename)
+  return runcmd( exeName + r''' -e "package.path = '..\\..\\..\\?.lua;?.lua' ; require('vscode-debuggee').start() ; ''' + args + r'''dofile('..\\..\\bench\\scimark.lua')"''', folder, logFilename)
 
 def main():
   startVSCodeDummyServer()
@@ -173,7 +173,7 @@ def main():
         print('** test failed')
         print('Log file: ', logFile)
         break
-      os.remove(v + '.zip')
+      os.remove(v + fext)
       rmDir(v)
       print("OK")
       successful = True
