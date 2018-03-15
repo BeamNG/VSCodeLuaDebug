@@ -156,7 +156,7 @@ def clog(msg):
 
 def test(exeName, args, folder, logFilename):
   shutil.copyfile('misc/bench-test.lua', folder + '/src/bench-test.lua')
-  return runcmds('test', [exeName + ' bench-test.lua'], folder + '\\src', logFilename)
+  return runcmds('test', [exeName + ' bench-test.lua "' + folder + '" -noffi'], folder + '\\src', logFilename)
 
 def main():
   startVSCodeDummyServer()
