@@ -26,11 +26,12 @@ versions_totest = [
   'lua-5.1.2',
   'lua-5.1.1',
   'lua-5.1',
-  'lua-5.0.3',
-  'lua-5.0.2',
-  'lua-5.0.1',
-  'lua-5.0',
-  'lua-4.0.1',
+  # these will not compile correctly with vs17:
+  #'lua-5.0.3',
+  #'lua-5.0.2',
+  #'lua-5.0.1',
+  #'lua-5.0',
+  #'lua-4.0.1',
   #'lua-4.0', # weird folder structure
   'LuaJIT-2.1.0-beta3',
   'LuaJIT-2.1.0-beta2',
@@ -154,7 +155,8 @@ def clog(msg):
   sys.stdout.flush()
 
 def test(exeName, args, folder, logFilename):
-  return runcmds('test', [exeName + r''' -e "package.path = '..\\..\\..\\?.lua;?.lua' ; require('vscode-debuggee').start() ; ''' + args + r'''dofile('..\\..\\bench\\nbody.lua')"'''], folder + '\\src', logFilename)
+  shutil.copyfile('misc/bench-test.lua', folder + '/src/bench-test.lua')
+  return runcmds('test', [exeName + ' bench-test.lua'], folder + '\\src', logFilename)
 
 def main():
   startVSCodeDummyServer()

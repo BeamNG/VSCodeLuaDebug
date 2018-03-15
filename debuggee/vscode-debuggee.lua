@@ -480,17 +480,18 @@ function M.start(_instanceName, config)
 
     -- redirect print
     originalPrintFunction = _G.print -- Keep the debugger in case it drops.
-    _G.print = printToDebugConsole
+    if config.redirectPrint then
+      _G.print = printToDebugConsole
+    end
+
+    log('I', 'vscode-debuggee', 'started successfully')
   else
     log('E', logtag, 'socket not available, mode only useful for performance testing of the hooking code')
   end
 
   -- start the hooking action
   sethook(hookRun, 'c')
-
   --debugLoop()
-
-  log('I', 'vscode-debuggee', 'started successfully')
   return true
 end
 
