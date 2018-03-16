@@ -9,13 +9,14 @@ solution "luasocket"
   location("premake_build/")
   platforms { 'x86', 'x64' }
   targetname('core')
-  targetdir(_OPTIONS['luapath'] .. '/socket/')
+  targetdir(_OPTIONS['luapath'] .. '/bin/socket/')
 
 project "luasocket"
   kind "SharedLib"
   defines {
     'LUASOCKET_INET_PTON=1',
     'LUASOCKET_INET_ATON=1',
+    'LUA_BUILD_AS_DLL',
     '_WINSOCK_DEPRECATED_NO_WARNINGS',
   	'LUASOCKET_API=__declspec(dllexport)',
 	  'MIME_API=__declspec(dllexport)',
@@ -25,8 +26,8 @@ project "luasocket"
   }
   includedirs  {
     'src',
-    _OPTIONS['luapath'],
-    _OPTIONS['luapath'] .. '/../include/' -- hack for old lua versions
+    _OPTIONS['luapath'] .. '/src/',
+    _OPTIONS['luapath'] .. '/include/' -- for old lua versions
   }
   files {
     "src/**.h",
@@ -38,9 +39,9 @@ project "luasocket"
     'src/usocket*',
     'src/serial*',
   }
-  links { "ws2_32.lib", _OPTIONS['luapath'] .. '/lua51.lib' }
+  links { "ws2_32.lib", _OPTIONS['luapath'] .. '/bin/lua.lib' }
   local luasocket_path  = path.translate(path.getabsolute('.'), '\\')
   postbuildcommands {
     -- copy the lua files
-    'copy /Y ' .. luasocket_path .. '\\src\\*.lua ' .. path.translate(path.getabsolute(_OPTIONS['luapath'])) .. '\\'
+    'copy /Y ' .. luasocket_path .. '\\src\\*.lua ' .. path.translate(path.getabsolute(_OPTIONS['luapath'])) .. '\\bin\\'
   }
