@@ -47,12 +47,12 @@ versions_totest = [
   'LuaJIT-2.0.1',
   'LuaJIT-2.0.0',
   # the following, old versions do not build with VS2017:
-  'LuaJIT-1.1.8',
-  'LuaJIT-1.1.7',
-  'LuaJIT-1.1.6',
-  'LuaJIT-1.1.5',
-  'LuaJIT-1.1.4',
-  'LuaJIT-1.1.3',
+  #'LuaJIT-1.1.8',
+  #'LuaJIT-1.1.7',
+  #'LuaJIT-1.1.6',
+  #'LuaJIT-1.1.5',
+  #'LuaJIT-1.1.4',
+  #'LuaJIT-1.1.3',
 ]
 
 vcvarsall = r'C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\VC\Auxiliary\Build\vcvarsall.bat'
