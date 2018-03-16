@@ -2,12 +2,12 @@
 local getTime = function() return 0 end
 local hassocket, socket = pcall(require, 'socket')
 if socket and socket.gettime then getTime = socket.gettime end
-local testName = tostring(arg[1])
-arg = table.remove(arg, 1)
+local arch = tostring(arg[1])
+local testName = tostring(arg[2])
+
 --print(" testName = " .. tostring(testName))
 
 local function testIt()
-  args = '-noffi'
   package.loaded['mandelbrot2'] = nil
   collectgarbage()
 
@@ -21,8 +21,6 @@ local function testIt()
   return diff
 end
 
-local a1 = testIt() -- this is supposed to cache everything for the first test
-
 local a = testIt()
 
 require('vscode-debuggee').start()
@@ -31,6 +29,6 @@ local b = testIt()
 
 print('Debugger is ' .. (b/a) .. ' x slower (' .. tostring(a) .. ' vs ' .. tostring(b) .. ')')
 
-file = io.open ('..\\..\\benchresults.csv', 'a')
-file:write(testName .. ', ' .. tostring(a) .. ', ' .. tostring(b) .. "\n")
+file = io.open ('..\\..\\..\\benchresults.csv', 'a')
+file:write(testName .. ', ' .. arch .. ', ' .. tostring(a) .. ', ' .. tostring(b) .. "\n")
 file:close()
