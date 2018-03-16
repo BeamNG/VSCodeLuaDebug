@@ -168,12 +168,12 @@ def clog(msg):
   sys.stdout.write(msg)
   sys.stdout.flush()
 
-def test(exeName, folder, args, logFilename):
+def test(exeName, folder, luaArgs, logFilename):
   shutil.copyfile('misc/bench-test.lua', folder + '/bin/bench-test.lua')
   shutil.copyfile('../vscode-debuggee.lua', folder + '/bin/vscode-debuggee.lua')
   shutil.copyfile('../dkjson.lua', folder + '/bin/dkjson.lua')
   shutil.copyfile('bench/mandelbrot2.lua', folder + '/bin/mandelbrot2.lua')
-  return runcmds('test', [exeName + ' bench-test.lua ' + ' '.join(args)], folder + '\\bin', logFilename)
+  return runcmds('test', [exeName + ' bench-test.lua ' + (' '.join(luaArgs))], folder + '\\bin', logFilename)
 
 def main():
   startVSCodeDummyServer()
@@ -223,7 +223,7 @@ def main():
 
       logFile = os.path.join(oname, 'test.log.txt')
       clog("testing: ")
-      if not test(exeName, oname, {arch, v}, logFile):
+      if not test(exeName, oname, [v, arch], logFile):
         print('** test failed')
         print('Log file: ', logFile)
         break

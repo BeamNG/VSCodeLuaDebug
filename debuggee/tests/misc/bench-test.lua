@@ -2,10 +2,11 @@
 local getTime = function() return 0 end
 local hassocket, socket = pcall(require, 'socket')
 if socket and socket.gettime then getTime = socket.gettime end
-local arch = tostring(arg[1])
-local testName = tostring(arg[2])
+local testName = tostring(arg[1])
+local arch = tostring(arg[2])
 
---print(" testName = " .. tostring(testName))
+print("- testName = " .. tostring(testName))
+print("- arch = " .. tostring(arch))
 
 local function testIt()
   package.loaded['mandelbrot2'] = nil
