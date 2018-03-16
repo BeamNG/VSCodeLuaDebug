@@ -1,5 +1,3 @@
-package.path = '..\\..\\..\\?.lua;..\\..\\bench\\?.lua;?.lua'
-
 -- helper things
 local getTime = function() return 0 end
 local hassocket, socket = pcall(require, 'socket')
