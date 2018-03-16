@@ -10,12 +10,12 @@ arg = table.remove(arg, 1)
 
 local function testIt()
   args = '-noffi'
-  package.loaded['scimark'] = nil
+  package.loaded['mandelbrot2'] = nil
   collectgarbage()
 
   local startTime = getTime()
 
-  local s = require('scimark')
+  local s = require('mandelbrot2')
 
   local endTime = getTime()
   local diff = (endTime - startTime)
