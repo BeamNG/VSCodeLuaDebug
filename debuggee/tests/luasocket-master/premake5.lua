@@ -39,7 +39,7 @@ project "luasocket"
     'src/usocket*',
     'src/serial*',
   }
-  links { "ws2_32.lib", _OPTIONS['luapath'] .. '/bin/lua.lib' }
+  links { "ws2_32.lib", _OPTIONS['luapath'] .. '/bin/lualib.lib' }
   local luasocket_path  = path.translate(path.getabsolute('.'), '\\')
   postbuildcommands {
     -- copy the lua files

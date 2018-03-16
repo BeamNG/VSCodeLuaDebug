@@ -3,10 +3,14 @@ solution "lua"
   location("premake_build/")
   platforms { 'x86', 'x64' }
   targetdir('bin')
+  symbols "On"
+  symbolspath 'bin/$(TargetName).pdb'
 
 project "lua-exec"
   kind "ConsoleApp"
   targetname('lua')
+  largeaddressaware "on"
+  characterset "ASCII" -- prevents compiling in UNICODE
   defines {
     'LUA_COMPAT_ALL',
     'LUA_BUILD_AS_DLL',
@@ -20,11 +24,13 @@ project "lua-exec"
     "src/lua.c",
   }
   links {
-    'lua',
+    'lualib',
   }
 
-project "lua"
+project "lualib"
   kind "SharedLib"
+  largeaddressaware "on"
+  characterset "ASCII"  -- prevents compiling in UNICODE
   defines {
     'LUA_COMPAT_ALL',
     'LUA_BUILD_AS_DLL',
