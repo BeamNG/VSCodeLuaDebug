@@ -9,6 +9,8 @@ import stat
 from distutils.dir_util import copy_tree
 from dummyVSCodeServer import *
 
+outdir = 'out'
+
 versions_totest = [
   'lua-5.3.4',
   'lua-5.3.3',
@@ -77,23 +79,23 @@ def downloadURL(url, fn):
     print("URL: ", url)
     return False
 
-def downloadLua(fn):
+def downloadLua(outfile, fn):
   if fn.startswith('LuaJIT-'):
-    return downloadURL('http://luajit.org/download/' + fn, fn)
+    return downloadURL('http://luajit.org/download/' + fn, outfile)
   elif fn.startswith('lua-'):
-    return downloadURL('https://www.lua.org/ftp/' + fn, fn)
+    return downloadURL('https://www.lua.org/ftp/' + fn, outfile)
 
-def unpack(filename):
+def unpack(filename, targetDir):
   try:
     if filename.endswith(".tar.gz"):
       import tarfile
       tar = tarfile.open(filename, "r:gz")
-      tar.extractall()
+      tar.extractall(targetDir)
       tar.close()
     elif filename.endswith(".zip"):
       import zipfile
       zip_ref = zipfile.ZipFile(filename, 'r')
-      zip_ref.extractall('.')
+      zip_ref.extractall(targetDir)
       zip_ref.close()
     else:
       print("unsupported format. Unable to unpack: ", filename)
@@ -106,7 +108,7 @@ def unpack(filename):
 def runcmds(context, cmds, folder, logFilename):
   #print('runcmds', cmd)
   cmdfilename = context + '.bat'
-  with open(folder + '\\' + cmdfilename, 'w') as cmdfile:
+  with open(os.path.join(folder, cmdfilename), 'w') as cmdfile:
     cmdfile.write("@echo on\n\n::This file is generated, be careful\n\ncd \"" + os.path.abspath(folder) + "\"\n\n")
     for cmd in cmds:
       cmdfile.write(cmd + " || goto :error\n")
@@ -124,20 +126,19 @@ exit /b %errorlevel%''')
   return False
 
 
-def compile(folder, arch, logFilename):
-  if folder.startswith('lua-'):
+def compile(folder, arch, logFilename, flavor):
+  if flavor == 'luajit':
+    return runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
+  elif flavor == 'lua':
     # we got to have a buildsystem first ...
-    shutil.copyfile('misc/lua-premake5.lua', folder + '/premake5.lua')
-    shutil.copyfile('misc/premake5.exe', folder + '/premake5.exe')
+    shutil.copyfile(os.path.join('misc', 'lua-premake5.lua'), os.path.join(folder, 'premake5.lua'))
+    shutil.copyfile(os.path.join('misc', 'premake5.exe'), os.path.join(folder, 'premake5.exe'))
     return runcmds('compile', [
 'call "' + vcvarsall + '" ' + arch,
 'premake5.exe vs2017',
 'cd premake_build',
 'msbuild lua.sln /p:Platform=' + msvc_arch_fix.get(arch, arch) + ' /nologo /p:Configuration=Release /verbosity:minimal /consoleloggerparameters:ShowTimestamp /maxcpucount',
     ], folder, logFilename)
-  elif folder.startswith('LuaJIT-'):
-    return runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
-  return False
 
 def compileLuaSocket(folder, arch, logFilename):
   copy_tree('luasocket-master', folder + "\\luasocket-master")
@@ -154,62 +155,71 @@ def clog(msg):
   sys.stdout.write(msg)
   sys.stdout.flush()
 
-def test(exeName, args, folder, logFilename):
+def test(exeName, folder, args, logFilename):
   shutil.copyfile('misc/bench-test.lua', folder + '/bin/bench-test.lua')
-  return runcmds('test', [exeName + ' bench-test.lua "' + folder + '" -noffi'], folder + '\\bin', logFilename)
+  shutil.copyfile('../vscode-debuggee.lua', folder + '/bin/vscode-debuggee.lua')
+  shutil.copyfile('../dkjson.lua', folder + '/bin/dkjson.lua')
+  shutil.copyfile('bench/mandelbrot2.lua', folder + '/bin/mandelbrot2.lua')
+  return runcmds('test', [exeName + ' bench-test.lua "' + args + '"'], folder + '\\bin', logFilename)
 
 def main():
   startVSCodeDummyServer()
+  if not os.path.isdir(outdir):
+    os.makedirs(outdir, True)
 
   for v in versions_totest:
     successful = False
     for arch in archs:
       clog(' - ' + '%20s'%v + ' [' + arch + ']: ')
       exeName = 'luajit.exe'
-      testArgs = ''
+      flavor = 'luajit'
       if v.startswith('lua-'):
         exeName = 'lua.exe'
-        testArgs = "arg={'-noffi'};"
-      #rmDir(v)
+        flavor = 'lua'
+      archdir = os.path.join(outdir, arch)
+      oname = os.path.join(archdir, v) # out name
+      if not os.path.isdir(oname):
+        os.makedirs(oname, True)
+      #rmDir(oname)
       fext = '.tar.gz'
-      if not os.path.exists(v + fext):
+      if not os.path.exists(oname + fext):
         clog("downloading, ")
-        if not downloadLua(v + fext):
+        if not downloadLua(oname + fext, v + fext):
           print('** unable to download file')
           break
-      if not os.path.exists(v):
+      if not os.path.isdir(oname) or len(os.listdir(oname)) == 0:
         clog("unpackping, ")
-        if not unpack(v + fext):
+        if not unpack(oname + fext, archdir):
           print('** unable to unpack file')
           break
-      if not os.path.exists(v + '/bin/' + exeName):
-        logFile = v + '/compile.log.txt'
+      if not os.path.exists(oname + '/bin/' + exeName):
+        logFile = os.path.join(oname, 'compile.log.txt')
         clog("compiling, ")
-        if not compile(v, arch, logFile):
+        if not compile(oname, arch, logFile, flavor):
           print('** unable to compile file')
           print('Log file: ', logFile)
           break
-      if not os.path.exists(v + '/bin/socket/core.dll'):
-        logFile = v + '/luasocket-compile.log.txt'
+      if not os.path.exists(oname + '/bin/socket/core.dll'):
+        logFile = os.path.join(oname, 'luasocket-compile.log.txt')
         clog("luasocket, ")
-        if not compileLuaSocket(v, arch, logFile):
+        if not compileLuaSocket(oname, arch, logFile):
           print('** unable to compile luasocket for Lua. Not using luasocket for testing ...')
           print('Log file: ', logFile)
           # luasocket is optional for this test
           #break
 
-      logFile = v + '/test.log.txt'
+      logFile = os.path.join(oname, 'test.log.txt')
       clog("testing: ")
-      if not test(exeName, testArgs, v, logFile):
+      if not test(exeName, oname, v, logFile):
         print('** test failed')
         print('Log file: ', logFile)
         break
-      #os.remove(v + fext)
-      #rmDir(v)
+      #os.remove(oname + fext)
+      #rmDir(oname)
       print("OK")
       successful = True
-    #if not successful:
-    #  break
+    if not successful:
+      break
 
 if __name__ == "__main__":
   main()
