@@ -24,10 +24,10 @@ project "lua-exec"
     "src/lua.c",
   }
   links {
-    'lualib',
+    'lua51',
   }
 
-project "lualib"
+project "lua51"
   kind "SharedLib"
   largeaddressaware "on"
   characterset "ASCII"  -- prevents compiling in UNICODE

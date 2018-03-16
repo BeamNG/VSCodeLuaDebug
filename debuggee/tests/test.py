@@ -11,6 +11,8 @@ from dummyVSCodeServer import *
 
 outdir = 'out'
 
+continueOnError = True # if False, it stops upon the first error
+
 versions_totest = [
   'lua-5.3.4',
   'lua-5.3.3',
@@ -29,11 +31,11 @@ versions_totest = [
   'lua-5.1.1',
   'lua-5.1',
   # these will not compile correctly with vs17:
-  #'lua-5.0.3',
-  #'lua-5.0.2',
-  #'lua-5.0.1',
-  #'lua-5.0',
-  #'lua-4.0.1',
+  'lua-5.0.3',
+  'lua-5.0.2',
+  'lua-5.0.1',
+  'lua-5.0',
+  'lua-4.0.1',
   #'lua-4.0', # weird folder structure
   'LuaJIT-2.1.0-beta3',
   'LuaJIT-2.1.0-beta2',
@@ -45,16 +47,16 @@ versions_totest = [
   'LuaJIT-2.0.1',
   'LuaJIT-2.0.0',
   # the following, old versions do not build with VS2017:
-  #'LuaJIT-1.1.8',
-  #'LuaJIT-1.1.7',
-  #'LuaJIT-1.1.6',
-  #'LuaJIT-1.1.5',
-  #'LuaJIT-1.1.4',
-  #'LuaJIT-1.1.3',
+  'LuaJIT-1.1.8',
+  'LuaJIT-1.1.7',
+  'LuaJIT-1.1.6',
+  'LuaJIT-1.1.5',
+  'LuaJIT-1.1.4',
+  'LuaJIT-1.1.3',
 ]
 
 vcvarsall = r'C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\VC\Auxiliary\Build\vcvarsall.bat'
-archs = ['x86'] # ,'x64']
+archs = ['x86','x64']
 msvc_arch_fix = { 'x86': 'win32' }
 
 # recursive delete, ignoring errors
@@ -128,7 +130,12 @@ exit /b %errorlevel%''')
 
 def compile(folder, arch, logFilename, flavor):
   if flavor == 'luajit':
-    return runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
+    res = runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
+    if res:
+      shutil.copyfile(os.path.join(folder, 'src', 'luajit.exe'), os.path.join(folder, 'bin', 'luajit.exe'))
+      shutil.copyfile(os.path.join(folder, 'src', 'lua51.lib'), os.path.join(folder, 'bin', 'lua51.lib'))
+      shutil.copyfile(os.path.join(folder, 'src', 'lua51.dll'), os.path.join(folder, 'bin', 'lua51.dll'))
+    return res
   elif flavor == 'lua':
     # we got to have a buildsystem first ...
     shutil.copyfile(os.path.join('misc', 'lua-premake5.lua'), os.path.join(folder, 'premake5.lua'))
@@ -160,7 +167,7 @@ def test(exeName, folder, args, logFilename):
   shutil.copyfile('../vscode-debuggee.lua', folder + '/bin/vscode-debuggee.lua')
   shutil.copyfile('../dkjson.lua', folder + '/bin/dkjson.lua')
   shutil.copyfile('bench/mandelbrot2.lua', folder + '/bin/mandelbrot2.lua')
-  return runcmds('test', [exeName + ' bench-test.lua "' + args + '"'], folder + '\\bin', logFilename)
+  return runcmds('test', [exeName + ' bench-test.lua ' + ' '.join(args)], folder + '\\bin', logFilename)
 
 def main():
   startVSCodeDummyServer()
@@ -210,7 +217,7 @@ def main():
 
       logFile = os.path.join(oname, 'test.log.txt')
       clog("testing: ")
-      if not test(exeName, oname, v, logFile):
+      if not test(exeName, oname, {arch, v}, logFile):
         print('** test failed')
         print('Log file: ', logFile)
         break
@@ -218,7 +225,7 @@ def main():
       #rmDir(oname)
       print("OK")
       successful = True
-    if not successful:
+    if not continueOnError and not successful:
       break
 
 if __name__ == "__main__":
