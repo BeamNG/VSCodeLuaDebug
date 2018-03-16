@@ -133,7 +133,7 @@ def compile(folder, arch, logFilename):
 'call "' + vcvarsall + '" ' + arch,
 'premake5.exe vs2017',
 'cd premake_build',
-'msbuild lua.sln /p:Platform=' + msvc_arch_fix.get(arch, arch) + ' /nologo /p:Configuration=Release /verbosity:minimal /consoleloggerparameters:ShowTimestamp;ForceConsoleColor /maxcpucount',
+'msbuild lua.sln /p:Platform=' + msvc_arch_fix.get(arch, arch) + ' /nologo /p:Configuration=Release /verbosity:minimal /consoleloggerparameters:ShowTimestamp /maxcpucount',
     ], folder, logFilename)
   elif folder.startswith('LuaJIT-'):
     return runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
@@ -144,9 +144,9 @@ def compileLuaSocket(folder, arch, logFilename):
   #rmDir('luasocket-master/build')
   return runcmds('compile-luasocket', [
 'call "' + vcvarsall + '" ' + arch,
-'premake5.exe vs2017 --luapath=' + os.path.abspath(folder) + '\\src',
+'premake5.exe vs2017 --luapath=' + os.path.abspath(folder),
 'cd premake_build',
-'msbuild luasocket.sln /p:Platform=' + msvc_arch_fix.get(arch, arch) + ' /nologo /p:Configuration=Release /verbosity:minimal /consoleloggerparameters:ShowTimestamp;ForceConsoleColor /maxcpucount',
+'msbuild luasocket.sln /p:Platform=' + msvc_arch_fix.get(arch, arch) + ' /nologo /p:Configuration=Release /verbosity:minimal /consoleloggerparameters:ShowTimestamp /maxcpucount',
   ], folder + "\\luasocket-master", logFilename)
 
 # console logging helper
@@ -155,8 +155,8 @@ def clog(msg):
   sys.stdout.flush()
 
 def test(exeName, args, folder, logFilename):
-  shutil.copyfile('misc/bench-test.lua', folder + '/src/bench-test.lua')
-  return runcmds('test', [exeName + ' bench-test.lua "' + folder + '" -noffi'], folder + '\\src', logFilename)
+  shutil.copyfile('misc/bench-test.lua', folder + '/bin/bench-test.lua')
+  return runcmds('test', [exeName + ' bench-test.lua "' + folder + '" -noffi'], folder + '\\bin', logFilename)
 
 def main():
   startVSCodeDummyServer()
@@ -182,14 +182,14 @@ def main():
         if not unpack(v + fext):
           print('** unable to unpack file')
           break
-      if not os.path.exists(v + '/src/' + exeName):
+      if not os.path.exists(v + '/bin/' + exeName):
         logFile = v + '/compile.log.txt'
         clog("compiling, ")
         if not compile(v, arch, logFile):
           print('** unable to compile file')
           print('Log file: ', logFile)
           break
-      if not os.path.exists(v + '/src/socket/core.dll'):
+      if not os.path.exists(v + '/bin/socket/core.dll'):
         logFile = v + '/luasocket-compile.log.txt'
         clog("luasocket, ")
         if not compileLuaSocket(v, arch, logFile):
