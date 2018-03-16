@@ -169,11 +169,16 @@ def clog(msg):
   sys.stdout.flush()
 
 def test(exeName, folder, luaArgs, logFilename):
-  shutil.copyfile('misc/bench-test.lua', folder + '/bin/bench-test.lua')
+  #shutil.copyfile('bench/test-main.lua', folder + '/bin/test-main.lua')
+  #shutil.copyfile('bench/mandelbrot2.lua', folder + '/bin/mandelbrot2.lua')
+
+  shutil.copyfile('json/json.lua', folder + '/bin/json.lua')
+  shutil.copyfile('json/test-main.lua', folder + '/bin/test-main.lua')
+  shutil.copyfile('json/testfile.json', folder + '/bin/testfile.json')
+
   shutil.copyfile('../vscode-debuggee.lua', folder + '/bin/vscode-debuggee.lua')
   shutil.copyfile('../dkjson.lua', folder + '/bin/dkjson.lua')
-  shutil.copyfile('bench/mandelbrot2.lua', folder + '/bin/mandelbrot2.lua')
-  return runcmds('test', [exeName + ' bench-test.lua ' + (' '.join(luaArgs))], folder + '\\bin', logFilename)
+  return runcmds('test', [exeName + ' test-main.lua ' + (' '.join(luaArgs))], folder + '\\bin', logFilename)
 
 def main():
   startVSCodeDummyServer()
