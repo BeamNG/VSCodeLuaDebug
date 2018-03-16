@@ -31,11 +31,11 @@ versions_totest = [
   'lua-5.1.1',
   'lua-5.1',
   # these will not compile correctly with vs17:
-  'lua-5.0.3',
-  'lua-5.0.2',
-  'lua-5.0.1',
-  'lua-5.0',
-  'lua-4.0.1',
+  #'lua-5.0.3',
+  #'lua-5.0.2',
+  #'lua-5.0.1',
+  #'lua-5.0',
+  #'lua-4.0.1',
   #'lua-4.0', # weird folder structure
   'LuaJIT-2.1.0-beta3',
   'LuaJIT-2.1.0-beta2',
@@ -132,9 +132,12 @@ def compile(folder, arch, logFilename, flavor):
   if flavor == 'luajit':
     res = runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
     if res:
-      shutil.copyfile(os.path.join(folder, 'src', 'luajit.exe'), os.path.join(folder, 'bin', 'luajit.exe'))
-      shutil.copyfile(os.path.join(folder, 'src', 'lua51.lib'), os.path.join(folder, 'bin', 'lua51.lib'))
-      shutil.copyfile(os.path.join(folder, 'src', 'lua51.dll'), os.path.join(folder, 'bin', 'lua51.dll'))
+      try:
+        shutil.copyfile(os.path.join(folder, 'src', 'luajit.exe'), os.path.join(folder, 'bin', 'luajit.exe'))
+        shutil.copyfile(os.path.join(folder, 'src', 'lua51.lib'), os.path.join(folder, 'bin', 'lua51.lib'))
+        shutil.copyfile(os.path.join(folder, 'src', 'lua51.dll'), os.path.join(folder, 'bin', 'lua51.dll'))
+      except:
+        return False
     return res
   elif flavor == 'lua':
     # we got to have a buildsystem first ...
