@@ -133,9 +133,12 @@ def compile(folder, arch, logFilename, flavor):
     res = runcmds('compile', ['call "' + vcvarsall + '" ' + arch, 'cd src', 'msvcbuild.bat'], folder, logFilename)
     if res:
       try:
-        shutil.copyfile(os.path.join(folder, 'src', 'luajit.exe'), os.path.join(folder, 'bin', 'luajit.exe'))
-        shutil.copyfile(os.path.join(folder, 'src', 'lua51.lib'), os.path.join(folder, 'bin', 'lua51.lib'))
-        shutil.copyfile(os.path.join(folder, 'src', 'lua51.dll'), os.path.join(folder, 'bin', 'lua51.dll'))
+        bindir = os.path.join(folder, 'bin')
+        if not os.path.isdir(bindir):
+          os.makedirs(bindir, True)
+        shutil.copyfile(os.path.join(folder, 'src', 'luajit.exe'), os.path.join(bindir, 'luajit.exe'))
+        shutil.copyfile(os.path.join(folder, 'src', 'lua51.lib'), os.path.join(bindir, 'lua51.lib'))
+        shutil.copyfile(os.path.join(folder, 'src', 'lua51.dll'), os.path.join(bindir, 'lua51.dll'))
       except:
         return False
     return res
