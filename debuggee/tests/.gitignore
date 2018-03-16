@@ -1,4 +1,3 @@
 *.pyc
-LuaJIT-*
-Lua-*
+out
 luasocket-master/build
