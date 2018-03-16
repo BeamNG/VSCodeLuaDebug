@@ -43,5 +43,5 @@ project "luasocket"
   local luasocket_path  = path.translate(path.getabsolute('.'), '\\')
   postbuildcommands {
     -- copy the lua files
-    'copy /Y ' .. luasocket_path .. '\\src\\*.lua ' .. path.translate(path.getabsolute(_OPTIONS['luapath'])) .. '\\bin\\'
+    'copy /Y ' .. luasocket_path .. '\\src\\socket.lua ' .. path.translate(path.getabsolute(_OPTIONS['luapath'])) .. '\\bin\\'
   }
