@@ -36,7 +36,7 @@ local json
 local handlers = {}
 local sock = nil
 
-local sourceBasePath = '.'
+local sourceBasePath = ''
 local storedVariables = {}
 local nextVarRef = 1
 local ignoreFirstFrameInC = false
@@ -57,7 +57,20 @@ local sockArray = {}
 
 local lastHaltInfo = nil
 
-local dumps = dumps or tostring
+-- placeholder for a more advanced inspection method. Used in error messages and alike
+function simpleDump(o)
+  if type(o) == 'table' then
+     local s = '{ '
+     for k,v in pairs(o) do
+        if type(k) ~= 'number' then k = '"'..k..'"' end
+        s = s .. '['..k..'] = ' .. simpleDump(v) .. ','
+     end
+     return s .. '} '
+  else
+     return tostring(o)
+  end
+end
+local dumps = dumps or simpleDump
 
 -- make sure sethook is not use by anyone else by overloading the API :)
 local sethook, d_getinfo = debug.sethook, debug.getinfo
@@ -79,21 +92,33 @@ end
 local log = defaultLogFunc
 
 -- converts VSCode paths to local paths
--- currently converts C:\something\some\other\folder\lua\foo\a.lua to lua/foo/a.lua
-local function vsCodePathToLocalPath(dir)
-  dir = dir:gsub("\\", "/")
-  dir = dir:gsub("//", "/")
-  --dir = string.lower(dir)
-
-  -- find lua/
-  local luaDirFound = dir:find('lua/')
-  if not luaDirFound then
-    log('E', logtag, 'invalid path to debug received: ' .. tostring(_dir))
-    return nil
+-- should be overriden in the config, the default just passes it through
+local function vsCodePathToLocalPathDefault(filename, sourceBasePath)
+  local res = filename
+  if sourceBasePath:len() > 0 and res:sub(1, sourceBasePath:len()) == sourceBasePath then
+    res = res:sub(sourceBasePath:len() + 1)
+    local firstChar = res:sub(1, 1)
+    -- remove leading slashes if they are leftovers from the trimming above
+    if firstChar == '/' or firstChar == '\\' then
+      res = res:sub(2)
+    end
   end
-
-  return '@' .. dir:sub(luaDirFound)
+  -- we save the entries in the map with a preceding @ symbol
+  res = '@' .. res
+  log('D', logtag .. 'VS2Lua', tostring(filename) .. ' > ' .. tostring(res))
+  return res
 end
+local vsCodePathToLocalPath = vsCodePathToLocalPathDefault
+
+local function localPathToVSCodePathDefault(filename, sourceBasePath)
+  local res = filename
+  if res ~= '=[C]' then
+    res = sourceBasePath .. '\\' .. filename
+  end
+  log('D', logtag .. 'Lua2VS', tostring(filename) .. ' > ' .. tostring(res))
+  return res
+end
+local localPathToVSCodePath = localPathToVSCodePathDefault
 
 -------------------------------------------------------------------------------
 local function debug_getinfo(depth, what)
@@ -292,18 +317,18 @@ local function hookStepOut(event)
   sethook(hookRun, 'cr')
 end
 
--- sends strings
-local function sendString(str)
+-- internal: sends strings (use sendMessage instead)
+local function _sendString(str)
   if not sock then return end
-  debugComm(' > ' .. tostring(str))
   local first = 1
   while first <= #str do
-    local sent = sock:send(str, first)
-    if sent and sent > 0 then
-      first = first + sent;
-    else
-      log('E', logtag, 'sock:send() returned < 0')
+    local sent, err = sock:send(str, first)
+    if not sent then
+      log('E', logtag, 'sock:send() error: ' .. tostring(err))
       M.disconnect()
+      break
+    elseif sent and sent > 0 then
+      first = first + sent;
     end
   end
 end
@@ -311,13 +336,14 @@ end
 -- Sends can also be blocks.
 local function sendMessage(msg)
   local body = json.encode(msg)
-  sendString('#' .. #body .. '\n' .. body)
+  debugComm('D', logtag .. '.com', ' > ' .. tostring(body))
+  _sendString('#' .. #body .. '\n' .. body)
 end
 
 -- Receive should not be a block ... Um ... Are you okay with the block?
 local function recvMessage()
   if not sock then
-    log('E', logtag, 'error receiving message: socket not existing')
+    --log('E', logtag, 'error receiving message: socket not existing')
     return
   end
   local header = sock:receive('*l')
@@ -331,6 +357,8 @@ local function recvMessage()
 
   local bodySize = tonumber(header:sub(2))
   local body = sock:receive(bodySize)
+  debugComm('D', logtag .. '.com', ' < ' .. tostring(body))
+
   return json.decode(body)
 end
 
@@ -374,8 +402,7 @@ local function logToDebugConsole(output, category)
       output = output
     }
   }
-  local dumpBody = json.encode(dumpMsg)
-  sendString('#' .. #dumpBody .. '\n' .. dumpBody)
+  sendMessage(dumpMsg)
 end
 
 local function printToDebugConsole(...)
@@ -401,8 +428,6 @@ local function debugLoop()
       break
     end
 
-    debugComm(' < ' .. dumps(msg), 'stderr')
-
     local fn = handlers[msg.command]
     if fn then
       local rv = fn(msg)
@@ -422,6 +447,7 @@ local function debugLoop()
 end
 
 function M.disconnect()
+  if sock == nil then return end -- already disconnected
   if originalPrintFunction then
     _G.print = originalPrintFunction
     originalPrintFunction = nil
@@ -430,44 +456,52 @@ function M.disconnect()
   log('E', logtag, 'connection to VSCode dropped')
 end
 
-function M.start(_instanceName, config)
+function M.start(config)
+  config = config or {}
 
-  instanceName = _instanceName or 'main'
+  instanceName = config.instanceName or 'main'
   logtag = 'debugger.' .. instanceName
 
-  config = config or {}
   local connectTimeout = config.connectTimeout or 10.0
-  local connectRetries = 3
+  local connectRetries = config.connectRetries or 3
   local controllerHost = config.controllerHost or 'localhost'
   local controllerPort = config.controllerPort or 56789
   log = config.logFunc or defaultLogFunc
   ignoreFirstFrameInC  = config.ignoreFirstFrameInC or false
+  vsCodePathToLocalPath = config.vsCodePathToLocalPath or vsCodePathToLocalPathDefault
+  localPathToVSCodePath = config.localPathToVSCodePath or localPathToVSCodePathDefault
   json = config.json or require('dkjson')
   assert(json)
 
   -- debug comm:
-  --debugComm = print -- logToDebugConsole
+  if config.debugCommunication then
+    debugComm = log
+  end
 
   if socket and socket.tcp then
     -- connect to vscode
+    local sleepTime = 1
     local successful = false
     for i = 1, connectRetries do
-      log('A', logtag, 'connecting ... (' .. tostring(i) .. ')')
+      --log('I', logtag, 'connecting ... (' .. tostring(i) .. ')')
       local err = nil
       sock, err = socket.tcp()
       if not sock then
         log('E', logtag, 'error creating socket: ' .. tostring(err))
         sock = nil
-        socket.sleep(1)
+        socket.sleep(sleepTime)
       else
         sockArray = { sock }
         sock:settimeout(connectTimeout) -- set the timeout for connecting only
         local res, err = sock:connect(controllerHost, tostring(controllerPort))
         if not res then
-          log('E', logtag, 'error connecting socket: ' .. tostring(err))
+          if err ~= 'connection refused' then
+            log('E', logtag, 'error connecting socket: ' .. tostring(err))
+          end
           sock:close()
           sock = nil
-          socket.sleep(1)
+          sleepTime = sleepTime * 2 -- sleep longer after every retry
+          socket.sleep(sleepTime)
         else
           sock:settimeout() -- block indefinity ater being connected
           sock:setoption('tcp-nodelay', true) -- Setting this option to true disables the Nagle's algorithm for the connection.
@@ -477,7 +511,7 @@ function M.start(_instanceName, config)
       end
     end
     if not successful or not sock then return false end
-    log('A', logtag, 'connected? ' .. tostring(successful) .. ', sock = ' .. tostring(sock))
+    --log('I', logtag, 'connected? ' .. tostring(successful) .. ', sock = ' .. tostring(sock))
 
     -- wait for the first message
     local initMessage = recvMessage()
@@ -498,12 +532,15 @@ function M.start(_instanceName, config)
 
   -- start the hooking action
   sethook(hookRun, 'c')
-  --debugLoop()
+
+  -- get the inital config (wait for 10 seconds)
+  M.poll(10)
+
   return true
 end
 
 -------------------------------------------------------------------------------
-function M.poll()
+function M.poll(timeoutFirstPackage)
   if not sock then
     --log('E', logtag, 'sock not connected')
     return
@@ -511,13 +548,18 @@ function M.poll()
 
   -- Processes commands in the queue.
   -- Immediately returns when the queue is/became empty.
+  local timeout = timeoutFirstPackage or 0
   while true do
-    local r, w, e = socket.select(sockArray, nil, 0) -- non blocking
-    if e == 'timeout' then break end
+    local r, w, e = socket.select(sockArray, nil, timeout) -- non blocking
+    if e == 'timeout' then
+      break
+    end
+
+    -- no timeout for all following packages
+    timeout = 0
 
     local msg = recvMessage()
     if not msg then break end
-    debugComm(' < ' .. dumps(msg), 'stderr')
 
     if msg.command == 'pause' then
       M.enterDebugLoop(1)
@@ -596,10 +638,13 @@ function handlers.setBreakpoints(req)
     bpLines[#bpLines + 1] = bp.line
   end
 
-  local path = vsCodePathToLocalPath(req.arguments.source.path)
-  if not path then return end
+  local path = vsCodePathToLocalPath(req.arguments.source.path, sourceBasePath)
+  if not path then
+    log('E', logtag, 'unable to resolve path for breakpoints: ' .. tostring(req.arguments.source.path))
+    return
+  end
 
-  --print('>> setBreakpoints >> ' .. dumps(path) .. ' / ' .. dumps(bpLines))
+  log('D', logtag, 'setBreakpoints: ' .. dumps(path) .. ' / ' .. dumps(bpLines))
 
   -- convert line array to map for easier lookup
   local lineMap = {}
@@ -686,7 +731,7 @@ function handlers.stackTrace(req)
       name = name,
       source = {
         name = nil,
-        path = sourceBasePath .. '\\' .. src:gsub("/", "\\")
+        path = localPathToVSCodePath(src, sourceBasePath)
       },
       column = 1,
       line = info.currentline or 1,
@@ -931,7 +976,6 @@ function handlers.evaluate(req)
   }
   setmetatable(tempG, mt)
 
-  -- farthing
   -- loadstring for Lua 5.1
   -- load for Lua 5.2 and 5.3(supports the private environment's load function)
   local fn, err = (loadstring or load)(sourceCode, 'X', nil, tempG)
