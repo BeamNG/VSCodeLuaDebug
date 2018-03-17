@@ -2,7 +2,7 @@
 -- http://benchmarksgame.alioth.debian.org/
 -- contributed by Mike Pall
 
-local width = tonumber(arg and arg[1]) or 1000
+local width = tonumber(arg and arg[1]) or 500
 local height, wscale = width, 2/width
 local m, limit2 = 50, 4.0
 local write, char = io.write, string.char
