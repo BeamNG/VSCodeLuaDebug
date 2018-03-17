@@ -5,27 +5,13 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "lua-5.3.4",
+      "name": "lua",
       "type": "lua",
       "request": "launch",
       "workingDirectory": "${workspaceRoot}",
       "sourceBasePath": "${workspaceRoot}",
       "killProcessOnDisconnect": true,
-      "executable": "${workspaceRoot}/lua-5.3.4.exe",
-      "arguments": "${file}", // feel free to add more arguments in here
-      "listenPublicly": false,
-      "listenPort": 56789,
-      "encoding": "UTF-8",
-      "env": {}
-    },
-    {
-      "name": "luajit-2.1.0-beta3",
-      "type": "lua",
-      "request": "launch",
-      "workingDirectory": "${workspaceRoot}",
-      "sourceBasePath": "${workspaceRoot}",
-      "killProcessOnDisconnect": true,
-      "executable": "${workspaceRoot}/luajit-2.1.0-beta3.exe",
+      "executable": "${workspaceRoot}/lua.exe",
       "arguments": "${file}", // feel free to add more arguments in here
       "listenPublicly": false,
       "listenPort": 56789,
