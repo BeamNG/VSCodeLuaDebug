@@ -31,6 +31,8 @@ require('vscode-debuggee').start()
 
 local M = {}
 
+local enableLuaJIT = true -- if available - set to false for debugging
+
 local hassocket, socket = pcall(require, 'socket')
 local json
 local handlers = {}
@@ -45,6 +47,8 @@ local originalPrintFunction = nil
 
 local instanceName = tostring(M)
 local logtag = 'debugger.' .. instanceName
+
+local filename_self = debug.getinfo(1, 'S').source:match(".-([^\\/]-[^%.]+)$") -- gets the current filename of this file
 
 local breakFileMap = {}
 local normalBreakPoints = {}
@@ -95,6 +99,7 @@ local log = defaultLogFunc
 -- should be overriden in the config, the default just passes it through
 local function vsCodePathToLocalPathDefault(filename, sourceBasePath)
   local res = filename
+  --[[
   if sourceBasePath:len() > 0 and res:sub(1, sourceBasePath:len()) == sourceBasePath then
     res = res:sub(sourceBasePath:len() + 1)
     local firstChar = res:sub(1, 1)
@@ -102,6 +107,11 @@ local function vsCodePathToLocalPathDefault(filename, sourceBasePath)
     if firstChar == '/' or firstChar == '\\' then
       res = res:sub(2)
     end
+  end
+  --]]
+  -- make the drive letter if present is lower case
+  if res:sub(2,2) == ':' then
+    res = string.lower(res:sub(1,1)) .. res:sub(2)
   end
   -- we save the entries in the map with a preceding @ symbol
   res = '@' .. res
@@ -112,7 +122,7 @@ local vsCodePathToLocalPath = vsCodePathToLocalPathDefault
 
 local function localPathToVSCodePathDefault(filename, sourceBasePath)
   local res = filename
-  if res ~= '=[C]' then
+  if res:sub(2,2) ~= ':' and res ~= '=[C]' then
     res = sourceBasePath .. '\\' .. filename
   end
   log('D', logtag .. 'Lua2VS', tostring(filename) .. ' > ' .. tostring(res))
@@ -147,6 +157,7 @@ local function checkBreakInStack()
     local info = debug.getinfo(i,'S')
     if info == nil then return false end
     local bmap = breakFileMap[info.source]
+    --log('D', logtag .. '.checkBreakInStack', "break? " .. tostring(info.source) .. ' = ' .. tostring(bmap))
     if bmap then
       local linestart, lineend = info.linedefined, info.lastlinedefined
       for lineBreakPoint, _ in pairs(bmap) do
@@ -161,7 +172,7 @@ end
 local hookRun = nil
 local hookAccurate = nil
 local hasprofile, profile = pcall(require, 'jit.profile')
-if hasprofile then
+if enableLuaJIT and hasprofile then
   -- Luajit support
   local profile_dumpstack = profile.dumpstack
   local stackBeginAcc = nil
@@ -173,6 +184,7 @@ if hasprofile then
     local filename = string_sub(st, stackBeginAcc, stackEnd - 1)
 
     local lineMap = breakFileMap[filename]
+    --log('D', logtag .. '.hookAccurate.luajit', "break? " .. tostring(filename) .. ' = ' .. tostring(lineMap))
     if lineMap then
       local info = d_getinfo(2, 'Sl')
       local currentline, linebegin, lineend = info.currentline, info.linedefined, info.lastlinedefined
@@ -212,13 +224,15 @@ if hasprofile then
 
   local stackBegin = nil
   hookRun = function()
-    local st = profile_dumpstack('pl@', 3)
+    local st = profile_dumpstack('pl@', 4)
+    print(">>>> ST = " .. tostring(st))
     stackBegin = stackBegin or string_find(st, '@', 17, true)
     local stackEnd = string_find(st, ':', stackBegin, true)
     if not stackEnd then return end
     local filename = string_sub(st, stackBegin, stackEnd - 1)
 
     local lineMap = breakFileMap[filename]
+    --log('D', logtag .. '.hookRun.luajit', "break? " .. tostring(filename) .. ' = ' .. tostring(lineMap))
     if lineMap then
       local info = d_getinfo(2, 'Sl')
       local currentline, linebegin, lineend = info.currentline, info.linedefined, info.lastlinedefined
@@ -247,6 +261,7 @@ else
     if not info then return end
 
     local lineMap = breakFileMap[info.source]
+    --log('D', logtag .. '.hookAccurate.lua', "break? " .. tostring(info.source) .. ' = ' .. tostring(lineMap))
     if lineMap then
       local currentline = d_getinfo(2, 'l').currentline
       local source, linebegin, lineend = info.source, info.linedefined, info.lastlinedefined
@@ -287,6 +302,7 @@ else
   hookRun = function()
     local info = d_getinfo(2, 'S')
     local lineMap = breakFileMap[info.source]
+    --log('D', logtag .. '.hookRun.lua', "break? " .. tostring(info.source) .. ' = ' .. tostring(lineMap))
     if lineMap then
       local currentline = d_getinfo(2, 'l').currentline
       local linebegin, lineend = info.linedefined, info.lastlinedefined
@@ -467,7 +483,9 @@ function M.start(config)
   local controllerHost = config.controllerHost or 'localhost'
   local controllerPort = config.controllerPort or 56789
   log = config.logFunc or defaultLogFunc
-  ignoreFirstFrameInC  = config.ignoreFirstFrameInC or false
+  if config.ignoreFirstFrameInC ~= nil then
+    ignoreFirstFrameInC = config.ignoreFirstFrameInC
+  end
   vsCodePathToLocalPath = config.vsCodePathToLocalPath or vsCodePathToLocalPathDefault
   localPathToVSCodePath = config.localPathToVSCodePath or localPathToVSCodePathDefault
   json = config.json or require('dkjson')
@@ -708,6 +726,12 @@ function handlers.stackTrace(req)
     if info and info.what == "C" then
       firstFrame = firstFrame + 1
     end
+  end
+
+  -- if firstframe is vsdebuggee, remove it
+  local info = debug_getinfo(firstFrame, 'lnS')
+  if info and info.source:find(filename_self, 1, true) then
+    firstFrame = firstFrame + 1
   end
 
   for i = firstFrame, lastFrame do
