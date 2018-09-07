@@ -2,7 +2,7 @@
     "name": "luadbg",
     "displayName": "Lua/LuaJIT Debugger",
     "version": "0.1.1",
-    "publisher": "BeamNG",
+    "publisher": "beamng",
     "icon": "luajit.png",
     "description": "Visual Studio Code debugger extension for Lua/LuaJIT",
     "categories": [
