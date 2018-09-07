@@ -67,12 +67,6 @@ If your project is a game client, you can call it every frame.
 debuggee.poll()
 ```
 
-# Gideros Support
-
-You can run Gideros Player directly from Visual Studio Code.
-Please refer to the 'launch-gideros' section of the debugging settings.
-
-
 # Remote Debugging
 
 If you set the debugging setting to `wait` and start debugging, Visual Studio Code will wait for a debuggee without executing one.
