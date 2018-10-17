@@ -206,7 +206,7 @@ def main():
           print('** unable to download file')
           break
       if not os.path.isdir(oname) or len(os.listdir(oname)) == 0:
-        clog("unpackping, ")
+        clog("unpacking, ")
         if not unpack(oname + fext, archdir):
           print('** unable to unpack file')
           break
